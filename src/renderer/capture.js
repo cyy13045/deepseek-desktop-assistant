@@ -1,5 +1,11 @@
 'use strict';
 const API = window.api;
+// 语言由主进程通过 ?lang= 传入（auto 已在主进程解析成实际语言）
+(function initI18n() {
+  const q = new URLSearchParams(location.search).get('lang');
+  if (q) window.DSA_I18N.setLang(q);
+  window.DSA_I18N.applyDom();
+})();
 const dim = document.getElementById('dim');
 const sel = document.getElementById('sel');
 const sizeLbl = document.getElementById('size');

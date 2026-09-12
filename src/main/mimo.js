@@ -20,6 +20,30 @@ function base(cfg) {
   return String(cfg.baseUrl || 'https://api.xiaomimimo.com/v1').replace(/\/+$/, '');
 }
 
+// 合成一段长文本可能要几十秒，但必须有上限：否则接口卡住时请求永远挂着，
+// 用户点「停止」也中断不了（之前只有外部 signal，而调用方从来不传）。
+const DEFAULT_TIMEOUT_MS = 180000;
+
+/** 把「外部取消信号」与「超时」合并成一个 signal，并返回清理函数 */
+function withTimeout(external, timeoutMs) {
+  const ctrl = new AbortController();
+  const ms = Number(timeoutMs) > 0 ? Number(timeoutMs) : DEFAULT_TIMEOUT_MS;
+  const timer = setTimeout(() => ctrl.abort(new Error('__tts_timeout__')), ms);
+  const onAbort = () => { try { ctrl.abort(external.reason); } catch (e) {} };
+  if (external) {
+    if (external.aborted) onAbort();
+    else external.addEventListener('abort', onAbort, { once: true });
+  }
+  return {
+    signal: ctrl.signal,
+    ms,
+    done() {
+      clearTimeout(timer);
+      if (external) external.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
 /** 统一的「发请求 → 取出 audio.data」流程 */
 async function requestAudio(cfg, body, signal) {
   if (process.env.DSA_MIMO_DEBUG) {
@@ -35,21 +59,33 @@ async function requestAudio(cfg, body, signal) {
       msgs: (body.messages || []).map(m => m.role + ':' + String(m.content == null ? 'NULL' : m.content).length),
     }));
   }
-  const r = await fetch(base(cfg) + '/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'api-key': cfg.apiKey },
-    body: JSON.stringify(body),
-    signal,
-  });
-  const txt = await r.text();
-  let j = null;
-  try { j = JSON.parse(txt); } catch (e) {}
-  if (process.env.DSA_MIMO_DEBUG && !r.ok) console.log('[mimo:resp]', r.status, txt.slice(0, 240));
-  if (!r.ok) throw new Error(describeHttp(r.status, j || txt));
-  const audio = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.audio;
-  if (!audio || !audio.data) throw new Error('MiMo 未返回音频数据（choices[0].message.audio.data 为空）');
-  const fmt = body.audio.format || 'mp3';
-  return { base64: audio.data, mime: MIME[fmt] || 'audio/mpeg', format: fmt };
+  const guard = withTimeout(signal, cfg.timeoutMs);
+  try {
+    const r = await fetch(base(cfg) + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': cfg.apiKey },
+      body: JSON.stringify(body),
+      signal: guard.signal,
+    });
+    const txt = await r.text();
+    let j = null;
+    try { j = JSON.parse(txt); } catch (e) {}
+    if (process.env.DSA_MIMO_DEBUG && !r.ok) console.log('[mimo:resp]', r.status, txt.slice(0, 240));
+    if (!r.ok) throw new Error(describeHttp(r.status, j || txt));
+    const audio = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.audio;
+    if (!audio || !audio.data) throw new Error('MiMo 未返回音频数据（choices[0].message.audio.data 为空）');
+    const fmt = body.audio.format || 'mp3';
+    return { base64: audio.data, mime: MIME[fmt] || 'audio/mpeg', format: fmt };
+  } catch (e) {
+    if (guard.signal.aborted || (e && e.name === 'AbortError')) {
+      throw new Error(signal && signal.aborted
+        ? '语音合成已取消'
+        : '语音合成超时（' + Math.round(guard.ms / 1000) + ' 秒未返回），可调小「分块字数」后重试');
+    }
+    throw e;
+  } finally {
+    guard.done();
+  }
 }
 
 /** 按文字描述设计一个音色，返回可作为参考的音频（base64） */

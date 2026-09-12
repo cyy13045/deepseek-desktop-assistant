@@ -10,227 +10,241 @@
 <div class="app">
   <header class="titlebar" id="titlebar">
     <img class="logo" src="../../assets/deepseek.svg" alt="" draggable="false" />
-    <div class="t">设置</div>
-    <button class="ibtn close" id="btnClose" title="关闭">✕</button>
+    <div class="t" data-i18n="settings.title">设置</div>
+    <button class="ibtn close" id="btnClose" title="关闭" data-i18n-title="settings.close">✕</button>
   </header>
 
   <div class="body" id="body">
     <section>
-      <h2>聊天服务</h2>
+      <h2 data-i18n="settings.chat.title">聊天服务</h2>
       <div class="picker">
         <select id="cList"></select>
-        <button class="mini" id="cDup" title="复制当前服务">复制</button>
-        <button class="mini danger" id="cDel" title="删除当前服务">删除</button>
+        <button class="mini" id="cDup" title="复制当前服务" data-i18n-title="settings.dupTitle" data-i18n="settings.dup">复制</button>
+        <button class="mini danger" id="cDel" title="删除当前服务" data-i18n-title="settings.delTitle" data-i18n="settings.del">删除</button>
       </div>
       <div class="picker add">
         <select id="cPresetSelect"></select>
-        <button class="mini" id="cAddPreset">＋ 从预设添加</button>
+        <button class="mini" id="cAddPreset" data-i18n="settings.addPreset">＋ 从预设添加</button>
       </div>
       <div class="state" id="cNote"></div>
 
-      <label>名称</label>
+      <label data-i18n="settings.field.name">名称</label>
       <input type="text" id="cName" spellcheck="false" />
 
       <div class="row2">
-        <label class="chk col"><span>协议</span><select id="cProtocol"></select></label>
-        <label class="chk col"><span>认证方式</span><select id="cAuthHeader"></select></label>
+        <label class="chk col"><span data-i18n="settings.field.protocol">协议</span><select id="cProtocol"></select></label>
+        <label class="chk col"><span data-i18n="settings.field.authHeader">认证方式</span><select id="cAuthHeader"></select></label>
       </div>
       <div id="cAuthNameWrap" style="display:none">
-        <label>自定义认证头名</label>
-        <input type="text" id="cAuthHeaderName" placeholder="例如 api-key" spellcheck="false" />
+        <label data-i18n="settings.field.authHeaderName">自定义认证头名</label>
+        <input type="text" id="cAuthHeaderName" placeholder="例如 api-key" data-i18n-placeholder="settings.ph.authHeaderName" spellcheck="false" />
       </div>
 
-      <label>Base URL</label>
+      <label data-i18n="settings.field.baseUrl">Base URL</label>
       <input type="text" id="cBaseUrl" spellcheck="false" />
 
-      <label>API Key</label>
+      <label data-i18n="settings.field.apiKey">API Key</label>
       <div class="row">
-        <input type="password" id="cApiKey" placeholder="sk-..." autocomplete="off" spellcheck="false" />
-        <button class="mini" id="cKeyToggle">显示</button>
-        <button class="mini danger" id="cKeyClear">清除</button>
+        <input type="password" id="cApiKey" placeholder="sk-..." data-i18n-placeholder="settings.ph.apiKey" autocomplete="off" spellcheck="false" />
+        <button class="mini" id="cKeyToggle" data-i18n="settings.show">显示</button>
+        <button class="mini danger" id="cKeyClear" data-i18n="settings.clear">清除</button>
       </div>
       <div class="state" id="cKeyState"></div>
 
-      <label>模型</label>
+      <label data-i18n="settings.field.model">模型</label>
       <div class="row">
         <input type="text" id="cModel" spellcheck="false" />
-        <button class="mini" id="cModelsBtn">拉取模型</button>
+        <button class="mini" id="cModelsBtn" data-i18n="settings.fetchModels">拉取模型</button>
       </div>
       <div class="state" id="cModelState"></div>
 
       <div class="row2">
-        <label class="chk"><input type="checkbox" id="cSupportsVision" /> 支持图片</label>
-        <label class="chk"><input type="checkbox" id="cSupportsThinking" /> 支持思考模式</label>
+        <label class="chk"><input type="checkbox" id="cSupportsVision" /><span class="plain" data-i18n="settings.field.supportsVision">支持图片</span></label>
+        <label class="chk"><input type="checkbox" id="cSupportsThinking" /><span class="plain" data-i18n="settings.field.supportsThinking">支持思考模式</span></label>
       </div>
       <div id="cThinkingWrap" style="display:none">
         <div class="row2">
-          <label class="chk"><input type="checkbox" id="cThinking" /> 启用深度思考</label>
-          <label class="chk"><span>思考强度</span>
+          <label class="chk"><input type="checkbox" id="cThinking" /><span class="plain" data-i18n="settings.field.thinking">启用深度思考</span></label>
+          <label class="chk"><span data-i18n="settings.field.reasoningEffort">思考强度</span>
             <select id="cReasoningEffort"><option value="low">low</option><option value="high">high</option><option value="max">max</option></select>
           </label>
         </div>
-        <div class="state">只有 DeepSeek 这类接受 thinking 参数的服务才要勾「支持思考模式」，勾错会被服务端拒绝。</div>
+        <div class="state" data-i18n="settings.hint.thinking">只有 DeepSeek 这类接受 thinking 参数的服务才要勾「支持思考模式」，勾错会被服务端拒绝。</div>
       </div>
 
       <details class="adv">
-        <summary>高级选项</summary>
+        <summary data-i18n="settings.advanced">高级选项</summary>
         <div class="row2">
-          <label class="chk col"><span>最大输出 tokens</span><input type="number" id="cMaxTokens" min="1" step="256" /></label>
-          <label class="chk col"><span>输出上限参数名</span>
+          <label class="chk col"><span data-i18n="settings.field.maxTokens">最大输出 tokens</span><input type="number" id="cMaxTokens" min="1" step="256" /></label>
+          <label class="chk col"><span data-i18n="settings.field.maxTokensParam">输出上限参数名</span>
             <select id="cMaxTokensParam">
-              <option value="max_tokens">max_tokens（多数服务）</option>
-              <option value="max_completion_tokens">max_completion_tokens（OpenAI o / GPT-5 系）</option>
+              <option value="max_tokens" data-i18n="settings.opt.maxTokens">max_tokens（多数服务）</option>
+              <option value="max_completion_tokens" data-i18n="settings.opt.maxCompletionTokens">max_completion_tokens（OpenAI o / GPT-5 系）</option>
             </select>
           </label>
         </div>
         <div class="row2">
-          <label class="chk col"><span>图片细节 detail</span>
+          <label class="chk col"><span data-i18n="settings.field.imageDetail">图片细节 detail</span>
             <select id="cImageDetail">
-              <option value="original">original — 保留原图（推荐）</option>
-              <option value="high">high — 等价 original</option>
-              <option value="low">low — 缩放到 512×512，更省 token</option>
+              <option value="original" data-i18n="settings.opt.detailOriginal">original — 保留原图（推荐）</option>
+              <option value="high" data-i18n="settings.opt.detailHigh">high — 等价 original</option>
+              <option value="low" data-i18n="settings.opt.detailLow">low — 缩放到 512×512，更省 token</option>
             </select>
           </label>
-          <label class="chk col"><span>温度（留空=不发送）</span><input type="text" id="cTemperature" spellcheck="false" /></label>
+          <label class="chk col"><span data-i18n="settings.field.temperature">温度（留空=不发送）</span><input type="text" id="cTemperature" spellcheck="false" /></label>
         </div>
-        <label>自定义请求路径（留空用协议默认）</label>
-        <input type="text" id="cPath" placeholder="例如 /chat/completions?api-version=2024-10-21" spellcheck="false" />
-        <label>额外请求头（JSON 对象，可留空）</label>
+        <label data-i18n="settings.field.path">自定义请求路径（留空用协议默认）</label>
+        <input type="text" id="cPath" placeholder="例如 /chat/completions?api-version=2024-10-21" data-i18n-placeholder="settings.ph.path" spellcheck="false" />
+        <label data-i18n="settings.field.extraHeaders">额外请求头（JSON 对象，可留空）</label>
         <textarea id="cExtraHeaders" rows="2" spellcheck="false" placeholder='{"HTTP-Referer":"https://example.com"}'></textarea>
       </details>
 
       <div class="row">
-        <button class="mini" id="cTestBtn">测试连接</button>
+        <button class="mini" id="cTestBtn" data-i18n="settings.test">测试连接</button>
         <span class="state" id="cTestState"></span>
       </div>
     </section>
 
     <section>
-      <h2>语音服务</h2>
+      <h2 data-i18n="settings.tts.title">语音服务</h2>
       <div class="picker">
         <select id="tList"></select>
-        <button class="mini" id="tDup">复制</button>
-        <button class="mini danger" id="tDel">删除</button>
+        <button class="mini" id="tDup" data-i18n="settings.dup">复制</button>
+        <button class="mini danger" id="tDel" data-i18n="settings.del">删除</button>
       </div>
       <div class="picker add">
         <select id="tPresetSelect"></select>
-        <button class="mini" id="tAddPreset">＋ 从预设添加</button>
+        <button class="mini" id="tAddPreset" data-i18n="settings.addPreset">＋ 从预设添加</button>
       </div>
       <div class="state" id="tNote"></div>
 
       <div class="row2">
-        <label class="chk col"><span>名称</span><input type="text" id="tName" spellcheck="false" /></label>
-        <label class="chk col"><span>协议</span><select id="tProtocol"></select></label>
+        <label class="chk col"><span data-i18n="settings.field.name">名称</span><input type="text" id="tName" spellcheck="false" /></label>
+        <label class="chk col"><span data-i18n="settings.field.protocol">协议</span><select id="tProtocol"></select></label>
       </div>
 
-      <label>Base URL</label>
+      <label data-i18n="settings.field.baseUrl">Base URL</label>
       <input type="text" id="tBaseUrl" spellcheck="false" />
 
-      <label>API Key</label>
+      <label data-i18n="settings.field.apiKey">API Key</label>
       <div class="row">
-        <input type="password" id="tApiKey" placeholder="sk-..." autocomplete="off" spellcheck="false" />
-        <button class="mini" id="tKeyToggle">显示</button>
-        <button class="mini danger" id="tKeyClear">清除</button>
+        <input type="password" id="tApiKey" placeholder="sk-..." data-i18n-placeholder="settings.ph.apiKey" autocomplete="off" spellcheck="false" />
+        <button class="mini" id="tKeyToggle" data-i18n="settings.show">显示</button>
+        <button class="mini danger" id="tKeyClear" data-i18n="settings.clear">清除</button>
       </div>
       <div class="state" id="tKeyState"></div>
 
       <div class="row2">
-        <label class="chk col"><span>认证方式</span><select id="tAuthHeader"></select></label>
-        <label class="chk col"><span>音频格式</span>
-          <select id="tFormat"><option value="mp3">mp3（体积小，推荐）</option><option value="wav">wav</option></select>
+        <label class="chk col"><span data-i18n="settings.field.authHeader">认证方式</span><select id="tAuthHeader"></select></label>
+        <label class="chk col"><span data-i18n="settings.field.format">音频格式</span>
+          <select id="tFormat"><option value="mp3" data-i18n="settings.opt.mp3">mp3（体积小，推荐）</option><option value="wav" data-i18n="settings.opt.wav">wav</option></select>
         </label>
       </div>
       <div id="tAuthNameWrap" style="display:none">
-        <label>自定义认证头名</label>
+        <label data-i18n="settings.field.authHeaderName">自定义认证头名</label>
         <input type="text" id="tAuthHeaderName" spellcheck="false" />
       </div>
 
       <div class="row2">
-        <label class="chk col"><span>TTS 模型</span><input type="text" id="tModel" spellcheck="false" /></label>
-        <label class="chk col"><span>音色</span><select id="tVoice"></select></label>
+        <label class="chk col"><span data-i18n="settings.field.ttsModel">TTS 模型</span><input type="text" id="tModel" spellcheck="false" /></label>
+        <label class="chk col"><span data-i18n="settings.field.voice">音色</span><select id="tVoice"></select></label>
       </div>
 
       <div id="tDesignBox">
-        <label>音色来源</label>
+        <label data-i18n="settings.field.voiceMode">音色来源</label>
         <select id="tVoiceMode">
-          <option value="design">文字设计音色（推荐 · 生成后固化，音色前后一致）</option>
-          <option value="preset">内置音色（预置音色列表）</option>
+          <option value="design" data-i18n="settings.opt.voiceDesign">文字设计音色（推荐 · 生成后固化，音色前后一致）</option>
+          <option value="preset" data-i18n="settings.opt.voicePreset">内置音色（预置音色列表）</option>
         </select>
         <div id="tDesignSub">
-        <label>音色设计描述（决定音色，写得越具体越稳定）</label>
+        <label data-i18n="settings.field.voiceDesignDesc">音色设计描述（决定音色，写得越具体越稳定）</label>
         <textarea id="tVoiceDesign" rows="3" spellcheck="false"></textarea>
         <div class="row">
           <select id="tVoicePreset"></select>
-          <button class="mini" id="tApplyPreset">套用预设</button>
+          <button class="mini" id="tApplyPreset" data-i18n="settings.applyPreset">套用预设</button>
         </div>
         <div class="row" style="margin-top:7px">
-          <button class="mini" id="tRegen">生成 / 重新生成音色</button>
+          <button class="mini" id="tRegen" data-i18n="settings.regenVoice">生成 / 重新生成音色</button>
         </div>
         <div class="state" id="tVoiceState"></div>
-        <div class="state">原理：voicedesign 每次调用的音色会有细微漂移，所以只生成一次并固化为参考音频，之后每个分块都用 voiceclone 复用同一份参考，保证整段朗读音色统一。</div>
+        <div class="state" data-i18n="settings.hint.voiceRef">原理：voicedesign 每次调用的音色会有细微漂移，所以只生成一次并固化为参考音频，之后每个分块都用 voiceclone 复用同一份参考，保证整段朗读音色统一。</div>
         </div>
       </div>
 
-      <label>朗读风格指令（可选，放在 user 消息里控制语气）</label>
-      <input type="text" id="tStyle" placeholder="例如：用平静、清晰的语气朗读" spellcheck="false" />
+      <label data-i18n="settings.field.style">朗读风格指令（可选，放在 user 消息里控制语气）</label>
+      <input type="text" id="tStyle" placeholder="例如：用平静、清晰的语气朗读" data-i18n-placeholder="settings.ph.style" spellcheck="false" />
 
       <div class="row2">
-        <label class="chk"><input type="checkbox" id="tAutoSpeak" /> 回答后自动播报</label>
-        <label class="chk"><span>分块字数</span><input type="number" id="tChunk" min="20" max="200" step="10" /></label>
+        <label class="chk"><input type="checkbox" id="tAutoSpeak" /><span class="plain" data-i18n="settings.field.autoSpeak">回答后自动播报</span></label>
+        <label class="chk"><span data-i18n="settings.field.chunk">分块字数</span><input type="number" id="tChunk" min="20" max="200" step="10" /></label>
       </div>
 
       <div class="row">
-        <button class="mini" id="tTestBtn">试听当前音色</button>
-        <button class="mini" id="tStopBtn">停止播放</button>
+        <button class="mini" id="tTestBtn" data-i18n="settings.tts.test">试听当前音色</button>
+        <button class="mini" id="tStopBtn" data-i18n="settings.tts.stop">停止播放</button>
         <span class="state" id="tTestState"></span>
       </div>
     </section>
 
     <section>
-      <h2>助手行为</h2>
-      <label>系统提示词</label>
+      <h2 data-i18n="settings.behavior.title">助手行为</h2>
+      <label data-i18n="settings.field.systemPrompt">系统提示词</label>
       <textarea id="systemPrompt" rows="4"></textarea>
       <div class="row2">
-        <label class="chk col"><span>上下文保留条数</span><input type="number" id="maxContextMessages" min="2" max="100" /></label>
-        <label class="chk col"><span>上下文内最多图片数</span><input type="number" id="maxImagesInContext" min="0" max="8" /></label>
+        <label class="chk col"><span data-i18n="settings.field.maxContextMessages">上下文保留条数</span><input type="number" id="maxContextMessages" min="2" max="100" /></label>
+        <label class="chk col"><span data-i18n="settings.field.maxImages">上下文内最多图片数</span><input type="number" id="maxImagesInContext" min="0" max="8" /></label>
       </div>
     </section>
 
     <section>
-      <h2>界面与行为</h2>
+      <h2 data-i18n="settings.ui.title">界面与行为</h2>
       <div class="row2">
-        <label class="chk col"><span>贴边位置</span>
-          <select id="uiEdge"><option value="right">右侧</option><option value="left">左侧</option></select>
+        <label class="chk col"><span data-i18n="settings.field.edge">贴边位置</span>
+          <select id="uiEdge"><option value="right" data-i18n="settings.opt.right">右侧</option><option value="left" data-i18n="settings.opt.left">左侧</option></select>
         </label>
-        <label class="chk"><span>悬浮球大小 <b id="uiSizeVal"></b></span>
+        <label class="chk"><span><span data-i18n="settings.field.ballSize">悬浮球大小</span> <b id="uiSizeVal"></b></span>
           <input type="range" id="uiSize" min="36" max="96" step="2" />
         </label>
       </div>
-      <label class="chk"><span>不透明度 <b id="uiOpacityVal"></b></span>
+      <label class="chk"><span><span data-i18n="settings.field.opacity">不透明度</span> <b id="uiOpacityVal"></b></span>
         <input type="range" id="uiOpacity" min="0.4" max="1" step="0.02" />
       </label>
       <div class="row2">
-        <label class="chk"><input type="checkbox" id="uiTop" /> 面板始终置顶</label>
-        <label class="chk"><input type="checkbox" id="uiAuto" /> 开机自动启动</label>
+        <label class="chk"><input type="checkbox" id="uiTop" /><span class="plain" data-i18n="settings.field.alwaysOnTop">面板始终置顶</span></label>
+        <label class="chk"><input type="checkbox" id="uiAuto" /><span class="plain" data-i18n="settings.field.autoLaunch">开机自动启动</span></label>
       </div>
-      <div class="state">拖动悬浮球可移动位置，松手后自动吸附最近的边缘并记住。全局快捷键：Ctrl+Alt+S 整屏 · Ctrl+Alt+A 框选</div>
+      <div class="state" data-i18n="settings.hint.ball">拖动悬浮球可移动位置，松手后自动吸附最近的边缘并记住。全局快捷键：Ctrl+Alt+S 整屏 · Ctrl+Alt+A 框选</div>
     </section>
 
     <section>
-      <h2>关于</h2>
-      <div class="state">版本 <b id="aboutVersion"></b><br />配置文件：<span id="aboutPath"></span></div>
-      <div class="row"><button class="mini" id="btnOpenDir">打开配置文件夹</button></div>
-      <div class="state">所有服务的 API Key 都使用 Windows DPAPI 加密后保存在本机，不会上传到除各自官方接口以外的任何地方。</div>
+      <h2 data-i18n="settings.lang.title">语言 / Language</h2>
+      <label data-i18n="settings.field.language">界面语言</label>
+      <select id="uiLanguage">
+        <option value="auto" data-i18n="settings.lang.auto">跟随系统</option>
+        <option value="zh-CN" data-i18n="settings.lang.zh">简体中文</option>
+        <option value="en-US" data-i18n="settings.lang.en">English</option>
+      </select>
+      <div class="state" data-i18n="settings.hint.language">保存后立即生效；「跟随系统」会按 Windows 的显示语言在简体中文与 English 之间自动选择。</div>
+    </section>
+
+    <section>
+      <h2 data-i18n="settings.about.title">关于</h2>
+      <div class="state"><span data-i18n="settings.about.version">版本</span> <b id="aboutVersion"></b><br /><span data-i18n="settings.about.configFile">配置文件：</span><span id="aboutPath"></span></div>
+      <div class="row"><button class="mini" id="btnOpenDir" data-i18n="settings.about.openDir">打开配置文件夹</button></div>
+      <div class="state" data-i18n="settings.hint.dpapi">所有服务的 API Key 都使用 Windows DPAPI 加密后保存在本机，不会上传到除各自官方接口以外的任何地方。</div>
     </section>
   </div>
 
   <footer class="footer">
     <span class="state" id="saveState"></span>
-    <button class="mini" id="btnCancel">取消</button>
-    <button class="primary" id="btnSave">保存</button>
+    <button class="mini" id="btnCancel" data-i18n="settings.cancel">取消</button>
+    <button class="primary" id="btnSave" data-i18n="settings.save">保存</button>
   </footer>
 </div>
 <div class="toast" id="toast"></div>
+<script src="../shared/locales/zh-CN.js"></script>
+<script src="../shared/locales/en-US.js"></script>
+<script src="../shared/i18n.js"></script>
 <script src="settings.js"></script>
 </body>
 </html>

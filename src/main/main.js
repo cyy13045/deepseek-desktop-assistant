@@ -34,11 +34,23 @@ const { History } = require('./history');
 const providers = require('./providers');
 // 分块与 Markdown 清洗与具体厂商无关，仍由 mimo.js 提供
 const { splitForSpeech } = require('./mimo');
+// 多语言：主进程与渲染进程共用同一份字典（src/shared/i18n.js，UMD 包装）
+const i18n = require('../shared/i18n');
+const t = (key, vars) => i18n.t(key, vars);
+
+/** auto = 跟随系统：app.getLocale() 以 zh 开头就用 zh-CN，否则用 en-US */
+function resolveLanguage(pref) {
+  if (pref === 'zh-CN' || pref === 'en-US') return pref;
+  let loc = '';
+  try { loc = String(app.getLocale() || ''); } catch (e) { loc = ''; }
+  return loc.toLowerCase().indexOf('zh') === 0 ? 'zh-CN' : 'en-US';
+}
 
 const SELFTEST = process.argv.includes('--selftest');
 const UI_CHECK = process.argv.includes('--ui-check');
 const DIAG = process.argv.includes('--diag');
-const DEV_MODE = SELFTEST || UI_CHECK || DIAG;
+const P0_CHECK = process.argv.includes('--p0-check');
+const DEV_MODE = SELFTEST || UI_CHECK || DIAG || P0_CHECK;
 const ROOT = path.join(__dirname, '..', '..');
 const PRELOAD = path.join(__dirname, '..', 'preload', 'preload.js');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -53,8 +65,10 @@ let activeChat = null;
 let ttsToken = 0;
 let ttsPaused = false;      // 语音暂停：既暂停播放，也暂停后台的合成推进
 let ttsResume = null;
+let ttsAbort = null;        // 当前这一轮朗读的取消控制器，供「停止」中断飞行中的请求
 let panelLoaded = false;
 let pendingShot = null;
+let currentLanguage = 'zh-CN';   // 实际生效的语言（auto 已在启动时按系统语言解析）
 
 const GAP = 12;
 const SLIVER = 8;
@@ -149,14 +163,14 @@ function createBall() {
     frame: false, transparent: true, resizable: true, movable: false, focusable: true,
     skipTaskbar: true, hasShadow: false, show: false, alwaysOnTop: true,
     fullscreenable: false, maximizable: false, minimizable: false,
-    title: 'DeepSeek 桌面助手',
+    title: t('app.title'),
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   });
   // resizable:true 才能用 setSize 改尺寸；再用 min/max 锁死，避免用户拖到不可见的边框
   try { ballWin.setMinimumSize(win, win); ballWin.setMaximumSize(win, win); } catch (e) {}
   ballWin.setAlwaysOnTop(true, 'floating');
   ballWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  ballWin.loadFile(path.join(ROOT, 'src', 'renderer', 'ball.html'));
+  ballWin.loadFile(path.join(ROOT, 'src', 'renderer', 'ball.html'), { query: { lang: currentLanguage } });
   ballWin.once('ready-to-show', () => {
     const p = ballPosition(ballState);
     ballWin.setPosition(p.x, p.y);
@@ -240,7 +254,7 @@ async function captureDisplay(display) {
   });
   let src = sources.find(s => String(s.display_id) === String(display.id));
   if (!src) src = sources.find(s => s.id.startsWith('screen:')) || sources[0];
-  if (!src) throw new Error('未找到可用的屏幕捕获源');
+  if (!src) throw new Error(t('error.noCaptureSource'));
   return { image: src.thumbnail, display };
 }
 
@@ -284,24 +298,31 @@ function openRegionSelector() {
     });
     captureWin = win;
     win.setAlwaysOnTop(true, 'screen-saver');
-    win.loadFile(path.join(ROOT, 'src', 'renderer', 'capture.html'));
+    win.loadFile(path.join(ROOT, 'src', 'renderer', 'capture.html'), { query: { lang: currentLanguage } });
     win.once('ready-to-show', () => { win.show(); win.focus(); });
 
-    const cleanup = () => {
+    // 只允许结算一次。之前窗口被 Alt+F4 或其它路径关掉时 Promise 永远不 resolve，
+    // withUiHidden 的 finally 不执行，界面就永久停在「隐藏」状态。
+    let settled = false;
+    let busy = false;
+    let timer = null;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) { clearTimeout(timer); timer = null; }
       ipcMain.removeListener('capture:rect', onRect);
       ipcMain.removeListener('capture:cancel', onCancel);
       if (captureWin === win) captureWin = null;
+      resolve(value);
     };
-    const onCancel = () => {
-      cleanup();
-      if (!win.isDestroyed()) win.close();
-      resolve(null);
-    };
+    const closeWin = () => { if (!win.isDestroyed()) win.close(); };
+    const onCancel = () => { settle(null); closeWin(); };
     const onRect = (_e, rect) => {
-      cleanup();
+      if (settled || busy) return;
       const ok = rect && rect.width > 2 && rect.height > 2;
-      if (!win.isDestroyed()) win.close();
-      if (!ok) { resolve(null); return; }
+      if (!ok) { settle(null); closeWin(); return; }
+      busy = true;
+      closeWin();
       setTimeout(async () => {
         try {
           const { image } = await captureDisplay(display);
@@ -315,15 +336,18 @@ function openRegionSelector() {
           };
           crop.width = Math.max(1, Math.min(crop.width, size.width - crop.x));
           crop.height = Math.max(1, Math.min(crop.height, size.height - crop.y));
-          resolve(history.saveShot(image.crop(crop).toPNG(), { width: crop.width, height: crop.height }));
+          settle(history.saveShot(image.crop(crop).toPNG(), { width: crop.width, height: crop.height }));
         } catch (err) {
-          resolve({ error: String(err.message || err) });
+          settle({ error: String(err.message || err) });
         }
       }, 150);
     };
     ipcMain.on('capture:rect', onRect);
     ipcMain.on('capture:cancel', onCancel);
-    win.on('closed', () => { if (captureWin === win) captureWin = null; });
+    // 兜底 1：窗口以任何方式被关闭都要结算
+    win.on('closed', () => { settle(null); });
+    // 兜底 2：极端情况下也不让 Promise 永久挂起
+    timer = setTimeout(() => { settle(null); closeWin(); }, 120000);
   });
 }
 
@@ -351,7 +375,7 @@ async function startCaptureFlow({ region }) {
   } catch (err) {
     ensurePanel();
     focusPanel();
-    sendPanel('app:toast', { kind: 'error', text: '截图失败: ' + (err.message || err) });
+    sendPanel('app:toast', { kind: 'error', text: t('error.captureFailed', { error: err.message || err }) });
   }
 }
 
@@ -376,10 +400,10 @@ function ensurePanel() {
   panelWin = new BrowserWindow({
     width: W, height: H, x, y, minWidth: 380, minHeight: 460,
     frame: false, transparent: true, resizable: true, skipTaskbar: true, show: false,
-    alwaysOnTop: !!cfg.ui.alwaysOnTop, hasShadow: true, title: 'DeepSeek 桌面助手',
+    alwaysOnTop: !!cfg.ui.alwaysOnTop, hasShadow: true, title: t('app.title'),
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   });
-  panelWin.loadFile(path.join(ROOT, 'src', 'renderer', 'panel.html'));
+  panelWin.loadFile(path.join(ROOT, 'src', 'renderer', 'panel.html'), { query: { lang: currentLanguage } });
   panelWin.webContents.once('did-finish-load', () => {
     panelLoaded = true;
     if (pendingShot && panelWin && !panelWin.isDestroyed()) {
@@ -411,10 +435,10 @@ function openSettings() {
     width: W, height: H,
     x: Math.round(wa.x + (wa.width - W) / 2), y: Math.round(wa.y + Math.max(0, (wa.height - H) / 2)),
     frame: false, transparent: true, resizable: false, skipTaskbar: false, show: false,
-    alwaysOnTop: true, title: '设置 - DeepSeek 桌面助手',
+    alwaysOnTop: true, title: t('settings.title') + ' - ' + t('app.title'),
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
   });
-  settingsWin.loadFile(path.join(ROOT, 'src', 'renderer', 'settings.html'));
+  settingsWin.loadFile(path.join(ROOT, 'src', 'renderer', 'settings.html'), { query: { lang: currentLanguage } });
   settingsWin.once('ready-to-show', () => settingsWin.show());
   settingsWin.on('closed', () => { settingsWin = null; });
 }
@@ -424,30 +448,38 @@ function createTray() {
   let img = nativeImage.createFromPath(path.join(ROOT, 'assets', 'tray.png'));
   if (img.isEmpty()) img = nativeImage.createEmpty();
   try { tray = new Tray(img); } catch (e) { console.error('[tray] 创建失败:', e.message); return; }
-  tray.setToolTip('DeepSeek 桌面助手');
+  buildTrayMenu();
+  tray.on('click', () => togglePanel());
+}
+
+/** 菜单/提示单独抽出来，切语言时能就地重建（不必重新创建 Tray） */
+function buildTrayMenu() {
+  if (!tray) return;
+  tray.setToolTip(t('tray.tooltip'));
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '打开对话面板', click: () => focusPanel() },
-    { label: '截图提问（整屏）', click: () => startCaptureFlow({ region: false }) },
-    { label: '截图提问（框选区域）', click: () => startCaptureFlow({ region: true }) },
+    { label: t('tray.panel'), click: () => focusPanel() },
+    { label: t('tray.captureFull'), click: () => startCaptureFlow({ region: false }) },
+    { label: t('tray.captureRegion'), click: () => startCaptureFlow({ region: true }) },
     { type: 'separator' },
-    { label: '显示/隐藏悬浮球', click: () => {
+    { label: t('tray.toggleBall'), click: () => {
         if (!ballWin || ballWin.isDestroyed()) return;
         if (ballWin.isVisible()) ballWin.hide();
         else { setBallState('shown', false); const p = ballPosition('shown'); ballWin.setPosition(p.x, p.y); ballWin.showInactive(); }
       } },
-    { label: '设置…', click: () => openSettings() },
+    { label: t('tray.settings'), click: () => openSettings() },
     { type: 'separator' },
-    { label: '打开配置文件夹', click: () => shell.openPath(app.getPath('userData')) },
+    { label: t('tray.openConfigDir'), click: () => shell.openPath(app.getPath('userData')) },
     { type: 'separator' },
-    { label: '退出', click: () => { app.isQuitting = true; app.quit(); } },
+    { label: t('tray.quit'), click: () => { app.isQuitting = true; app.quit(); } },
   ]));
-  tray.on('click', () => togglePanel());
 }
 
 // ---------------------------------------------------------------- IPC
 function registerIpc() {
   ipcMain.handle('config:get', () => ({
     config: store.publicView(),
+    // 实际生效的语言（auto 已按系统语言解析过），渲染进程用它初始化界面语言
+    language: currentLanguage,
     chatProtocols: providers.CHAT_PROTOCOL_LIST,
     ttsProtocols: providers.TTS_PROTOCOL_LIST,
     authChoices: providers.AUTH_LIST,
@@ -476,6 +508,16 @@ function registerIpc() {
       }
     }
     const cfg = store.update(clean);
+    // 语言变了：立刻切换主进程语言、重建托盘菜单，并通知已打开的窗口刷新
+    const nextLang = resolveLanguage(cfg.ui.language);
+    if (nextLang !== currentLanguage) {
+      currentLanguage = nextLang;
+      i18n.setLang(currentLanguage);
+      buildTrayMenu();
+      for (const w of [ballWin, panelWin, settingsWin, captureWin]) {
+        send(w, 'i18n:changed', { language: currentLanguage });
+      }
+    }
     if (ballWin && !ballWin.isDestroyed()) {
       const { win } = ballMetrics();
       try { ballWin.setMinimumSize(win, win); ballWin.setMaximumSize(win, win); ballWin.setSize(win, win); } catch (e) {}
@@ -485,8 +527,8 @@ function registerIpc() {
     }
     if (panelWin && !panelWin.isDestroyed()) panelWin.setAlwaysOnTop(!!cfg.ui.alwaysOnTop);
     try { app.setLoginItemSettings({ openAtLogin: !!cfg.ui.autoLaunch, path: process.execPath }); } catch (e) {}
-    sendPanel('config:changed', { config: store.publicView() });
-    return { ok: true, config: store.publicView() };
+    sendPanel('config:changed', { config: store.publicView(), language: currentLanguage });
+    return { ok: true, config: store.publicView(), language: currentLanguage };
   });
 
   // ---- 聊天服务 ----
@@ -524,7 +566,7 @@ function registerIpc() {
   ipcMain.handle('provider:models', async (_e, payload) => {
     try {
       const p = pickChat(store.get(), payload);
-      if (!p) return { ok: false, error: '找不到对应的聊天服务。' };
+      if (!p) return { ok: false, error: t('error.chatNotFound') };
       return { ok: true, models: await providers.listModels(p) };
     } catch (e) { return { ok: false, error: String(e.message || e) }; }
   });
@@ -532,10 +574,10 @@ function registerIpc() {
   ipcMain.handle('provider:test', async (_e, payload) => {
     try {
       const p = pickChat(store.get(), payload);
-      if (!p) return { ok: false, error: '找不到对应的聊天服务。' };
-      if (!p.apiKey && p.authHeader !== 'none') return { ok: false, error: '请先填写「' + p.name + '」的 API Key。' };
+      if (!p) return { ok: false, error: t('error.chatNotFound') };
+      if (!p.apiKey && p.authHeader !== 'none') return { ok: false, error: t('error.apiKeyRequired', { name: p.name }) };
       const res = await providers.chatOnce(p, { systemPrompt: '', text: '回复"连接正常"四个字，不要有其他内容。' });
-      return { ok: true, message: (res.content || '').slice(0, 120) || '(返回内容为空)', provider: p.name };
+      return { ok: true, message: (res.content || '').slice(0, 120) || t('error.emptyResponse'), provider: p.name };
     } catch (e) { return { ok: false, error: String(e.message || e) }; }
   });
 
@@ -543,27 +585,27 @@ function registerIpc() {
   ipcMain.handle('tts:test', async (_e, payload) => {
     try {
       const p = pickTts(store.get(), payload);
-      if (!p) return { ok: false, error: '找不到对应的语音服务。' };
-      if (!p.apiKey && p.authHeader !== 'none') return { ok: false, error: '请先填写「' + p.name + '」的 API Key。' };
+      if (!p) return { ok: false, error: t('error.ttsNotFound') };
+      if (!p.apiKey && p.authHeader !== 'none') return { ok: false, error: t('error.apiKeyRequired', { name: p.name }) };
       let voiceRef = null;
       let label = p.voice || p.name;
       if (voiceNeeded(p)) {
         const ref = await ensureVoiceRef(p, false);
         voiceRef = 'data:' + ref.mime + ';base64,' + ref.base64;
-        label = 'AI 设计音色' + (ref.cached ? '' : '（刚生成）');
+        label = ref.cached ? t('voice.aiDesigned') : t('voice.aiDesignedNew');
       }
       const r = await providers.synthesize(p, '语音合成连接正常，这是当前音色的试听效果。', { voiceRef });
       const bytes = Buffer.from(r.base64, 'base64').length;
-      return { ok: true, message: '合成成功 · ' + p.name + ' · ' + label + ' · ' + Math.round(bytes / 1024) + ' KB', audio: r.base64, mime: r.mime, voice: label };
+      return { ok: true, message: t('msg.ttsTestOk', { name: p.name, voice: label, kb: Math.round(bytes / 1024) }), audio: r.base64, mime: r.mime, voice: label };
     } catch (e) { return { ok: false, error: String(e.message || e) }; }
   });
 
   ipcMain.handle('tts:design-voice', async (_e, payload) => {
     try {
       const p = pickTts(store.get(), payload);
-      if (!p) return { ok: false, error: '找不到对应的语音服务。' };
-      if (!providers.ttsSupportsVoiceDesign(p)) return { ok: false, error: '「' + p.name + '」不支持文字设计音色。' };
-      if (!p.apiKey && p.authHeader !== 'none') return { ok: false, error: '请先填写「' + p.name + '」的 API Key。' };
+      if (!p) return { ok: false, error: t('error.ttsNotFound') };
+      if (!providers.ttsSupportsVoiceDesign(p)) return { ok: false, error: t('error.voiceDesignUnsupported', { name: p.name }) };
+      if (!p.apiKey && p.authHeader !== 'none') return { ok: false, error: t('error.apiKeyRequired', { name: p.name }) };
       const ref = await ensureVoiceRef(p, !(payload && payload.reuse));
       return { ok: true, cached: ref.cached, bytes: ref.bytes, file: ref.file, audio: ref.base64, mime: ref.mime };
     } catch (e) { return { ok: false, error: String(e.message || e) }; }
@@ -571,8 +613,9 @@ function registerIpc() {
 
   ipcMain.handle('tts:voice-ref-info', (_e, payload) => {
     try {
-      const p = resolveTts(store.get(), payload && payload.id);
-      if (!p) return { ok: false, error: '找不到对应的语音服务。' };
+      // 必须用 pickTts：设置界面传的是「还没保存的表单 provider」，不是 id
+      const p = pickTts(store.get(), payload);
+      if (!p) return { ok: false, error: t('error.ttsNotFound') };
       return Object.assign({ ok: true, supported: providers.ttsSupportsVoiceDesign(p) }, voiceRefInfo(p));
     } catch (e) { return { ok: false, error: String(e.message || e) }; }
   });
@@ -616,8 +659,8 @@ function registerIpc() {
   ipcMain.handle('chat:send', async (_e, payload) => {
     const cfg = store.get();
     const prov = resolveChat(cfg, payload.providerId);
-    if (!prov) return { ok: false, error: '还没有可用的聊天服务，请先到设置里添加一个。' };
-    if (!prov.apiKey && prov.authHeader !== 'none') return { ok: false, error: '请先在设置中填写「' + prov.name + '」的 API Key。' };
+    if (!prov) return { ok: false, error: t('error.noChatService') };
+    if (!prov.apiKey && prov.authHeader !== 'none') return { ok: false, error: t('error.noApiKey', { name: prov.name }) };
     let convId = payload.conversationId;
     if (!convId || !history.get(convId)) convId = history.create().id;
     if (activeChat) { try { activeChat.controller.abort(); } catch (e) {} }
@@ -646,7 +689,7 @@ function registerIpc() {
       return { ok: true, conversationId: convId, message: aiMsg };
     } catch (err) {
       if (err && (err.name === 'AbortError' || /abort/i.test(String(err.message)))) {
-        if (acc) history.append(convId, { role: 'assistant', text: acc + '\n\n_（已中断）_', interrupted: true });
+        if (acc) history.append(convId, { role: 'assistant', text: acc + '\n\n_' + t('chat.interrupted') + '_', interrupted: true });
         sendPanel('chat:aborted', { conversationId: convId });
         return { ok: false, aborted: true, conversationId: convId };
       }
@@ -654,7 +697,10 @@ function registerIpc() {
       sendPanel('chat:error', { conversationId: convId, error: msg });
       return { ok: false, error: msg, conversationId: convId };
     } finally {
-      activeChat = null;
+      // 只有当 activeChat 仍然属于本次请求时才清空。
+      // 否则「A 在跑 → B 启动（中止 A）→ A 的 finally 无条件清空」会把 B 的登记抹掉，
+      // 之后点停止就找不到 controller，停止按钮失效。
+      if (activeChat && activeChat.controller === controller) activeChat = null;
     }
   });
   ipcMain.handle('chat:abort', () => { if (activeChat) { try { activeChat.controller.abort(); } catch (e) {} } return { ok: true }; });
@@ -662,25 +708,30 @@ function registerIpc() {
   ipcMain.handle('tts:speak', async (_e, payload) => {
     const cfg = store.get();
     const prov = providers.activeTts(cfg);
-    if (!prov) return { ok: false, error: '还没有可用的语音服务，请先到设置里添加一个。' };
-    if (!prov.apiKey && prov.authHeader !== 'none') return { ok: false, error: '请先在设置中填写「' + prov.name + '」的 API Key。' };
+    if (!prov) return { ok: false, error: t('error.noTtsService') };
+    if (!prov.apiKey && prov.authHeader !== 'none') return { ok: false, error: t('error.noApiKey', { name: prov.name }) };
     const my = ++ttsToken;
+    // 中断上一轮还没结束的合成请求（abort 已结束的 controller 是安全的空操作，
+    // 所以不需要在 finally 里清理）
+    if (ttsAbort) { try { ttsAbort.abort(); } catch (e) {} }
+    ttsAbort = new AbortController();
+    const mySignal = ttsAbort.signal;
     setTtsPaused(false, true);   // 新的一轮朗读从「未暂停」开始
 
     const chunks = splitForSpeech(payload.text || '', prov.chunkSize || 60);
-    if (!chunks.length) return { ok: false, error: '没有可朗读的文本。' };
+    if (!chunks.length) return { ok: false, error: t('error.noSpeakText') };
 
     // 需要参考音频的协议（MiMo 设计音色）：先确保已固化（首次约 2~3 秒，之后命中缓存）
     let voiceRef = null;
     let voiceLabel = prov.voice || prov.name;
     if (voiceNeeded(prov)) {
       try {
-        const ref = await ensureVoiceRef(prov, !!payload.regenerateVoice);
+        const ref = await ensureVoiceRef(prov, !!payload.regenerateVoice, mySignal);
         voiceRef = 'data:' + ref.mime + ';base64,' + ref.base64;
-        voiceLabel = 'AI 设计音色';
+        voiceLabel = t('voice.aiDesigned');
         sendPanel('tts:voice-ref', { cached: ref.cached, bytes: ref.bytes, file: ref.file });
       } catch (err) {
-        const msg = '音色设计失败：' + String(err.message || err);
+        const msg = t('error.voiceDesignFailed', { error: String(err.message || err) });
         sendPanel('tts:error', { index: 0, total: 1, error: msg });
         return { ok: false, error: msg };
       }
@@ -693,7 +744,7 @@ function registerIpc() {
       await ttsGate(my);                                     // 暂停时停在这里，不再继续合成
       if (my !== ttsToken) return { ok: false, aborted: true };
       try {
-        const r = await providers.synthesize(prov, chunks[i], { voiceRef, format: prov.format });
+        const r = await providers.synthesize(prov, chunks[i], { voiceRef, format: prov.format, signal: mySignal });
         if (my !== ttsToken) return { ok: false, aborted: true };
         sendPanel('tts:audio', { index: i, total: chunks.length, base64: r.base64, mime: r.mime, text: chunks[i] });
       } catch (err) {
@@ -709,6 +760,7 @@ function registerIpc() {
   ipcMain.handle('tts:resume', () => { setTtsPaused(false); return { ok: true, paused: false }; });
   ipcMain.handle('tts:stop', () => {
     ttsToken++;                    // 让正在跑的合成循环失效
+    if (ttsAbort) { try { ttsAbort.abort(); } catch (e) {} }   // 真正中断飞行中的合成请求
     setTtsPaused(false, true);     // 并把它从暂停门里放出来，好让它看到 token 变化后退出
     return { ok: true };
   });
@@ -740,14 +792,14 @@ function registerIpc() {
 function openBallMenu() {
   if (!ballWin || ballWin.isDestroyed()) return;
   Menu.buildFromTemplate([
-    { label: '截图提问（整屏）', click: () => startCaptureFlow({ region: false }) },
-    { label: '截图提问（框选区域）', click: () => startCaptureFlow({ region: true }) },
+    { label: t('tray.captureFull'), click: () => startCaptureFlow({ region: false }) },
+    { label: t('tray.captureRegion'), click: () => startCaptureFlow({ region: true }) },
     { type: 'separator' },
-    { label: '打开对话面板', click: () => focusPanel() },
-    { label: '设置…', click: () => openSettings() },
+    { label: t('tray.panel'), click: () => focusPanel() },
+    { label: t('tray.settings'), click: () => openSettings() },
     { type: 'separator' },
-    { label: '隐藏悬浮球', click: () => ballWin.hide() },
-    { label: '退出', click: () => { app.isQuitting = true; app.quit(); } },
+    { label: t('ball.menu.hide'), click: () => ballWin.hide() },
+    { label: t('tray.quit'), click: () => { app.isQuitting = true; app.quit(); } },
   ]).popup({ window: ballWin });
 }
 
@@ -776,7 +828,7 @@ function voiceRefInfo(cfg) {
 }
 
 /** 保证音色参考音频存在；force=true 时重新设计（描述变了 hash 也会变，自动生成新音色） */
-async function ensureVoiceRef(cfg, force) {
+async function ensureVoiceRef(cfg, force, signal) {
   const file = voiceRefFile(cfg);
   if (!force) {
     try {
@@ -786,7 +838,7 @@ async function ensureVoiceRef(cfg, force) {
       }
     } catch (e) { /* 未生成过，往下走 */ }
   }
-  const r = await providers.designVoice(cfg, cfg.voiceDesign, VOICE_REF_SAMPLE, { format: 'mp3' });
+  const r = await providers.designVoice(cfg, cfg.voiceDesign, VOICE_REF_SAMPLE, { format: 'mp3', signal });
   const buf = Buffer.from(r.base64, 'base64');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, buf);
@@ -947,6 +999,106 @@ async function runBallDiag() {
   app.exit(0);
 }
 
+// ---------------------------------------------------------------- P0 专项检查
+// 只跑三条 P0 修复的定向断言，不碰 TTS 播放和截图，几十秒就能出结果。
+// 结果同时写 ui-check/p0-report.txt，方便在后台跑完后查看。
+async function runP0Check() {
+  const log = (...a) => console.log('[p0]', ...a);
+  const out = [];
+  const reportFile = path.join(ROOT, 'ui-check', 'p0-report.txt');
+  const flush = () => { try { fs.mkdirSync(path.dirname(reportFile), { recursive: true }); fs.writeFileSync(reportFile, out.join('\n') + '\n', 'utf8'); } catch (e) {} };
+  const t = (line) => { out.push(line); log(line); flush(); };
+  let failed = 0;
+  try {
+    const p = ensurePanel();
+    if (!panelLoaded) await new Promise(r => p.webContents.once('did-finish-load', r));
+    await sleep(1500);
+    const js = code => p.webContents.executeJavaScript(code);
+
+    // ---- P0-1：voice-ref-info 必须认传入的 provider ----
+    const vr = await js('(async () => {' +
+      'const cfg = (await API.config.get()).config;' +
+      'const act = cfg.providers.tts.find(x => x.id === cfg.activeTtsId) || cfg.providers.tts[0];' +
+      'const mk = d => ({ id: act.id, protocol: act.protocol, designModel: act.designModel, voiceDesign: d });' +
+      'const a = await API.tts.voiceRefInfo({ provider: mk("描述 A：沉稳的中年男声") });' +
+      'const b = await API.tts.voiceRefInfo({ provider: mk("描述 B：清亮的少女音色，与 A 完全不同") });' +
+      'return JSON.stringify({ a: String(a.file||"").split(String.fromCharCode(92)).pop(), b: String(b.file||"").split(String.fromCharCode(92)).pop(), same: a.file === b.file });' +
+      '})()');
+    const v = JSON.parse(vr);
+    t('[P0-1] 两个不同音色描述 -> same=' + v.same + '  A=' + v.a + '  B=' + v.b
+      + '   => ' + (v.same ? 'FAIL（仍在用当前生效的语音服务）' : 'OK'));
+    if (v.same) failed++;
+
+    // ---- P0-2：并发 chat 时「停止」仍然有效 ----
+    // 直接断言「后发那个请求的返回值」：修好后 B 应该被 abort 掉（aborted:true）。
+    // 用长输出提示词，保证 abort 时 B 还在流式生成中（否则 B 已答完，测不出问题）。
+    await js("window.__aborts=0; API.on('chat:aborted',()=>window.__aborts++); true");
+    await js("window.__pA = API.chat.send({text:'请写一段 400 字左右的散文，主题是秋天。'});"
+      + " window.__pB = API.chat.send({text:'请写一段 400 字左右的散文，主题是冬天。'}); true");
+    await sleep(2000);
+    await js('API.chat.abort()');
+    await sleep(1500);
+    const bRes = await js("window.__pB.then(r => JSON.stringify(r)).catch(e => 'ERR:' + e.message)");
+    const aRes = await js("window.__pA.then(r => JSON.stringify(r)).catch(e => 'ERR:' + e.message)");
+    const n = await js('window.__aborts');
+    const bAborted = /"aborted":true/.test(bRes);
+    t('[P0-2] 并发送出 A、B 后 abort ->  A=' + aRes + '  B=' + bRes + '  事件数=' + n
+      + '   => ' + (bAborted ? 'OK（B 也被停止，controller 没被误清）' : 'FAIL（B 未被停止：它的登记被 A 的 finally 抹掉了）'));
+    if (!bAborted) failed++;
+
+    // ---- P0-3：框选遮罩被外部关闭时必须结算 ----
+    await js('window.__region = API.capture.region(); true');
+    await sleep(1800);
+    const had = !!(captureWin && !captureWin.isDestroyed());
+    if (had) captureWin.close();          // 模拟 Alt+F4 之类的外部关闭
+    const settled = await Promise.race([
+      js("window.__region.then(() => 'settled').catch(() => 'settled')"),
+      sleep(6000).then(() => 'HUNG'),
+    ]);
+    await sleep(1500);
+    const panelBack = !!(panelWin && !panelWin.isDestroyed() && panelWin.isVisible());
+    t('[P0-3] 遮罩存在=' + had + ' 外部关闭后 capture.region()=' + settled + ' 面板恢复可见=' + panelBack
+      + '   => ' + (settled === 'settled' && panelBack ? 'OK' : 'FAIL（Promise 挂起 / UI 卡在隐藏）'));
+    if (settled !== 'settled' || !panelBack) failed++;
+
+    // ---- P2-7：同名服务在下拉里必须能区分 ----
+    const lbl = await js('(async () => {' +
+      'const win = await API.panel.openSettings();' +
+      'return "skip";' +
+      '})()').catch(() => 'skip');
+    const lblRes = await (async () => {
+      // providerLabel 是 settings.js 里的顶层函数声明，同源脚本里可直接调用
+      openSettings();
+      await sleep(2000);
+      if (!settingsWin || settingsWin.isDestroyed()) return 'settings 窗口未创建';
+      return settingsWin.webContents.executeJavaScript(
+        'JSON.stringify({\n' +
+        '  dup: providerLabel([{id:"a",name:"DeepSeek"},{id:"b",name:"DeepSeek"}], {id:"b",name:"DeepSeek",model:"deepseek-flash"}, "model"),\n' +
+        '  single: providerLabel([{id:"a",name:"DeepSeek"}], {id:"a",name:"DeepSeek",model:"deepseek-flash"}, "model"),\n' +
+        '  tts: providerLabel([{id:"x",name:"MiMo"},{id:"y",name:"MiMo"}], {id:"x",name:"MiMo",ttsModel:"mimo-v2.5-tts"}, "ttsModel")\n' +
+        '})'
+      );
+    })();
+    let lblOk = false;
+    try {
+      const L = JSON.parse(lblRes);
+      lblOk = L.dup.includes('#2') && !L.single.includes('#') && L.tts.includes('#1');
+      t('[P2-7] 同名服务区分 -> dup=' + JSON.stringify(L.dup) + '  single=' + JSON.stringify(L.single)
+        + '  tts=' + JSON.stringify(L.tts) + '   => ' + (lblOk ? 'OK' : 'FAIL'));
+    } catch (e) {
+      t('[P2-7] 无法解析结果: ' + String(lblRes).slice(0, 120) + '   => FAIL');
+    }
+    if (!lblOk) failed++;
+    if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close();
+
+    t(failed === 0 ? '定向检查全部通过' : ('定向检查失败 ' + failed + ' 项'));
+  } catch (e) {
+    t('异常: ' + (e && e.stack ? e.stack : String(e)));
+    failed++;
+  }
+  app.exit(failed === 0 ? 0 : 1);
+}
+
 // ---------------------------------------------------------------- 界面自检（开发用：把三个页面渲染结果截图保存）
 async function runUiCheck() {
   const log = (...a) => console.log('[ui-check]', ...a);
@@ -973,6 +1125,13 @@ async function runUiCheck() {
       log(name, s.width + 'x' + s.height, Math.round(fs.statSync(file).size / 1024) + ' KB');
     } catch (e) { log(name, '捕获失败:', e.message); }
   };
+
+  // 流程结果同时写进文件：Electron 在后台作业里不会把 stdout 交给父进程，
+  // 只靠 console.log 的话后台跑完什么都看不到。
+  const flow = [];
+  const reportFile = path.join(outDir, 'report.txt');
+  const flush = () => { try { fs.writeFileSync(reportFile, flow.join('\n') + '\n', 'utf8'); } catch (e) {} };
+  const flushTimer = setInterval(flush, 3000);
 
   try {
     const shot = await captureFullScreen();
@@ -1017,7 +1176,6 @@ async function runUiCheck() {
 
     // ---- 走真实 IPC 的流程校验 ----
     const js = code => p.webContents.executeJavaScript(code);
-    const flow = [];
 
     await js('state.pendingImage = null; true');
     await js('window.api.capture.full()');
@@ -1099,15 +1257,54 @@ async function runUiCheck() {
     await js('window.api.tts.stop()');
     await sleep(300);
 
+    // ---------- P0-1：voice-ref-info 必须认「传进来的 provider」，而不是当前生效的那个 ----------
+    const vr = await js('(async () => {' +
+      'const cfg = (await API.config.get()).config;' +
+      'const act = cfg.providers.tts.find(p => p.id === cfg.activeTtsId) || cfg.providers.tts[0];' +
+      'const mk = d => ({ id: act.id, protocol: act.protocol, designModel: act.designModel, voiceDesign: d });' +
+      'const a = await API.tts.voiceRefInfo({ provider: mk("描述 A：沉稳的中年男声") });' +
+      'const b = await API.tts.voiceRefInfo({ provider: mk("描述 B：清亮的少女音色，跟 A 完全不同") });' +
+      'return JSON.stringify({ a: String(a.file||"").split(String.fromCharCode(92)).pop(), b: String(b.file||"").split(String.fromCharCode(92)).pop(), same: a.file === b.file });' +
+      '})()');
+    flow.push('P0-1 两个不同音色描述 -> 参考文件 ' + vr + '   [修好后 same 应为 false]');
+
+    // ---------- P0-2：并发 chat 时「停止」仍然有效 ----------
+    await js("window.__aborts=0; API.on('chat:aborted',()=>window.__aborts++); true");
+    await js("API.chat.send({text:'数到 3'}); API.chat.send({text:'数到 5'}); true");
+    await sleep(2600);
+    await js('API.chat.abort()');
+    await sleep(2600);
+    flow.push('P0-2 并发两次 send 后再 abort，chat:aborted 次数=' + await js('window.__aborts')
+      + '   [修好后应为 2：A 被 B 挤掉 + B 被 abort；没修只会是 1]');
+
+    // ---------- P0-3：框选遮罩被外部关闭时 Promise 必须结算 ----------
+    await js('window.__region = API.capture.region(); true');
+    await sleep(1600);
+    const hadOverlay = !!(captureWin && !captureWin.isDestroyed());
+    if (hadOverlay) captureWin.close();     // 模拟 Alt+F4 之类的外部关闭
+    const settled = await Promise.race([
+      js("window.__region.then(() => 'settled').catch(() => 'settled')"),
+      sleep(5000).then(() => 'HUNG'),
+    ]);
+    await sleep(1200);
+    const panelBack = !!(panelWin && !panelWin.isDestroyed() && panelWin.isVisible());
+    flow.push('P0-3 遮罩存在=' + hadOverlay + '，外部关闭后 capture.region() = ' + settled
+      + '，面板恢复可见=' + panelBack + '   [修好后应 settled 且面板可见]');
+
     await js("window.api.config.save({ui:{size:56}})");
     const rp = providers.activeTts(store.get());
     flow.push('已恢复默认: size=' + ballWin.getBounds().width + ' 语音=' + rp.name + ' 音色=' + rp.voice);
 
     flow.forEach(x => log('流程 ', x));
+    clearInterval(flushTimer);
+    flush();
     log('界面自检完成');
     app.exit(0);
   } catch (e) {
     log('异常:', e && e.stack ? e.stack : String(e));
+    flow.push('异常: ' + (e && e.stack ? e.stack : String(e)));
+    clearInterval(flushTimer);
+    flush();
     app.exit(1);
   }
 }
@@ -1120,12 +1317,16 @@ if (!DEV_MODE && !app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     store = new Store(app.getPath('userData'));
     history = new History(app.getPath('userData'));
+    // 启动时按配置解析语言：auto 跟随系统，其余取配置值
+    currentLanguage = resolveLanguage(store.get().ui.language);
+    i18n.setLang(currentLanguage);
     try { app.setLoginItemSettings({ openAtLogin: !!store.get().ui.autoLaunch, path: process.execPath }); } catch (e) {}
     registerIpc();
     try { const n = history.sweepOrphans(); if (n) console.log('[history] 清理孤儿截图', n, '个'); } catch (e) {}
     if (SELFTEST) { runSelftest(); return; }
     if (UI_CHECK) { runUiCheck(); return; }
     if (DIAG) { runBallDiag(); return; }
+    if (P0_CHECK) { runP0Check(); return; }
     createBall();
     createTray();
     try {

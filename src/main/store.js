@@ -26,6 +26,7 @@ const DEFAULTS = {
     alwaysOnTop: true,
     autoLaunch: false,
     hideDelayMs: 380,
+    language: 'auto',        // auto | zh-CN | en-US
   },
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   maxContextMessages: 20,
@@ -63,6 +64,14 @@ function decryptSecret(v) {
   } catch (e) {
     return '';
   }
+}
+
+function deepFreeze(obj) {
+  if (obj && typeof obj === 'object' && !Object.isFrozen(obj)) {
+    Object.freeze(obj);
+    for (const v of Object.values(obj)) deepFreeze(v);
+  }
+  return obj;
 }
 
 function mask(key) {
@@ -113,6 +122,9 @@ class Store {
     this.dir = dir;
     this.file = path.join(dir, 'config.json');
     this._cfg = null;
+    this._rev = 0;            // 内部配置版本号，配置一变就 +1
+    this._snapshot = null;    // 对外只读快照（按版本号缓存）
+    this._snapshotRev = -1;
   }
 
   load(force) {
@@ -137,19 +149,36 @@ class Store {
       }
     }
     this._cfg = cfg;
+    this._rev++;
     if (wasLegacy) {
       try { this._persist(); console.log('[store] 已把旧版配置升级为多服务结构'); } catch (e) {}
     }
     return cfg;
   }
 
-  get() { return this.load(); }
+  /**
+   * 返回一份不可变快照。
+   * 之前直接返回内部对象：调用方一旦就地改写就会污染实时配置；而且配置热更新期间
+   * 读到的对象与后续读取可能来自不同版本，出现「半更新」的混合状态。
+   * 现在按版本号缓存一份深拷贝并冻结 —— 调用方拿到的永远是一致的只读视图，
+   * 又不会每次调用都重新克隆（悬浮球的悬停轮询每 45ms 会读一次）。
+   */
+  get() {
+    const cfg = this.load();
+    if (!this._snapshot || this._snapshotRev !== this._rev) {
+      this._snapshot = deepFreeze(JSON.parse(JSON.stringify(cfg)));
+      this._snapshotRev = this._rev;
+    }
+    return this._snapshot;
+  }
 
   update(patch) {
     const merged = deepMerge(this.load(), patch || {});
-    this._cfg = merged;
+    // 深拷贝一份再存：把外部快照传进来的冻结对象解冻，保证内部状态始终可写
+    this._cfg = JSON.parse(JSON.stringify(merged));
+    this._rev++;
     this._persist();
-    return merged;
+    return this.get();
   }
 
   _persist() {

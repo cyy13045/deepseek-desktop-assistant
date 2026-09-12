@@ -58,7 +58,7 @@ async function readSse(response, onPayload) {
 }
 
 /** 把连续同角色的轮次合并，并保证首条是 user —— Anthropic 与 Gemini 都要求这样 */
-function mergeAlternating(turns, userRole) {
+function mergeAlternating(turns) {
   const out = [];
   for (const t of turns) {
     const role = t.role === 'assistant' ? 'assistant' : 'user';

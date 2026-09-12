@@ -1,6 +1,13 @@
 'use strict';
 const API = window.api;
 const $ = id => document.getElementById(id);
+const T = (key, vars) => window.DSA_I18N.t(key, vars);
+// 语言由主进程通过 ?lang= 传入（auto 已在主进程解析成实际语言），随后把静态文案刷一遍
+(function initI18n() {
+  const q = new URLSearchParams(location.search).get('lang');
+  if (q) window.DSA_I18N.setLang(q);
+  window.DSA_I18N.applyDom();
+})();
 
 const el = {
   messages: $('messages'), empty: $('empty'), input: $('input'), send: $('btnSend'),
@@ -116,7 +123,7 @@ function renderAssistant(m) {
     const det = document.createElement('details');
     det.className = 'think';
     const sum = document.createElement('summary');
-    sum.textContent = '深度思考过程';
+    sum.textContent = T('panel.thinking');
     const box = document.createElement('div');
     box.textContent = m.reasoning;
     det.appendChild(sum); det.appendChild(box);
@@ -134,19 +141,20 @@ function addActions(wrap, bubble, m) {
   const bar = document.createElement('div');
   bar.className = 'msg-actions';
   const speak = document.createElement('button');
-  speak.textContent = '▶ 朗读';
+  speak.textContent = T('panel.speak');
   speak.onclick = () => {
     if (state.speakingMsgId === m.id) stopSpeaking();
     else speakText(m.text, m.id);
   };
   const copy = document.createElement('button');
-  copy.textContent = '复制';
+  copy.textContent = T('panel.copy');
   copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(m.text || ''); toast('已复制'); } catch (e) { toast('复制失败', true); }
+    try { await navigator.clipboard.writeText(m.text || ''); toast(T('panel.copied')); } catch (e) { toast(T('panel.copyFailed'), true); }
   };
   bar.appendChild(speak); bar.appendChild(copy);
   wrap.appendChild(bar);
   wrap._speakBtn = speak;
+  wrap._copyBtn = copy;
 }
 
 function renderError(text) {
@@ -176,7 +184,7 @@ function renderAttachment() {
   const i = document.createElement('img');
   i.src = img.thumb; i.draggable = false;
   const x = document.createElement('button');
-  x.className = 'x'; x.textContent = '✕'; x.title = '移除截图';
+  x.className = 'x'; x.textContent = '✕'; x.title = T('panel.removeShot');
   x.onclick = () => { state.pendingImage = null; renderAttachment(); };
   chip.appendChild(i); chip.appendChild(x);
   el.attachments.appendChild(chip);
@@ -186,7 +194,7 @@ function renderAttachment() {
 function setStatus(t) { el.status.textContent = t || ''; }
 function setStreaming(on) {
   state.streaming = on;
-  el.send.textContent = on ? '停止' : '发送';
+  el.send.textContent = on ? T('panel.stop') : T('panel.send');
   el.send.classList.toggle('stop', on);
   el.btnFull.disabled = on; el.btnRegion.disabled = on;
 }
@@ -198,12 +206,12 @@ function autoGrow() {
 async function send() {
   if (state.streaming) { await API.chat.abort(); return; }
   const text = el.input.value.trim();
-  if (!text && !state.pendingImage) { toast('请输入问题或先截图'); return; }
+  if (!text && !state.pendingImage) { toast(T('panel.needInput')); return; }
   const payload = { conversationId: state.conversationId, text, image: state.pendingImage };
   el.input.value = ''; autoGrow();
   state.pendingImage = null; renderAttachment();
   setStreaming(true);
-  setStatus('正在请求 DeepSeek…');
+  setStatus(T('panel.requesting'));
   const res = await API.chat.send(payload);
   if (res && res.conversationId) state.conversationId = res.conversationId;
   if (res && !res.ok && !res.aborted) {
@@ -223,7 +231,7 @@ const tts = { queue: [], playing: false, audio: null, paused: false, total: 0, d
 function showPlaybar(on) { el.playbar.classList.toggle('show', !!on); }
 function setPbText(t) { el.pbText.textContent = t; }
 function setPauseUi() {
-  el.pbPause.textContent = tts.paused ? '▶ 继续' : '⏸ 暂停';
+  el.pbPause.textContent = tts.paused ? T('panel.tts.resume') : T('panel.tts.pause');
   el.pbPause.classList.toggle('primary', tts.paused);
   el.pbSpeaker.classList.toggle('playing', !tts.paused && tts.playing);
 }
@@ -239,20 +247,20 @@ function finishTts() {
 }
 
 function speakText(text, msgId) {
-  if (!text || !text.trim()) { toast('没有可朗读的内容'); return; }
+  if (!text || !text.trim()) { toast(T('panel.tts.nothing')); return; }
   stopSpeaking(true);
   markSpeaking(msgId || null);
   tts.started = true;
   tts.done = false;
   tts.total = 0;
   showPlaybar(true);
-  setPbText('正在准备语音…');
+  setPbText(T('panel.tts.preparing'));
   setPauseUi();
-  setStatus('正在合成语音…');
+  setStatus(T('panel.tts.synthesizing'));
   API.tts.speak({ text, voice: state.voice || undefined }).then(r => {
     if (r && !r.ok && !r.aborted) {
       setStatus('');
-      toast(r.error || '语音合成失败', true);
+      toast(r.error || T('panel.tts.failed'), true);
       finishTts();
     }
   });
@@ -266,7 +274,7 @@ function stopSpeaking(quiet) {
   tts.done = false;
   API.tts.stop();
   finishTts();
-  setPbText('语音播报');
+  setPbText(T('panel.tts.label'));
   if (!quiet) setStatus('');
 }
 
@@ -276,8 +284,8 @@ function pauseSpeaking() {
   if (tts.audio) { try { tts.audio.pause(); } catch (e) {} }
   API.tts.pause();
   setPauseUi();
-  setPbText('已暂停（合成也已暂停）');
-  setStatus('语音已暂停');
+  setPbText(T('panel.tts.pausedSync'));
+  setStatus(T('panel.tts.paused'));
   applySpeakingButtons();
 }
 
@@ -286,7 +294,7 @@ function resumeSpeaking() {
   API.tts.resume();
   if (tts.audio) {
     tts.audio.play().catch(() => {});
-    setPbText('正在播放');
+    setPbText(T('panel.tts.playing'));
   } else {
     pump();   // 可能在两块之间暂停，继续时需要主动取下一块
   }
@@ -302,7 +310,7 @@ function pump() {
   if (!item) {
     tts.playing = false;
     setPauseUi();
-    if (tts.done && tts.started) { setPbText('播放结束'); setTimeout(() => { if (!tts.playing && !tts.queue.length) finishTts(); }, 900); }
+    if (tts.done && tts.started) { setPbText(T('panel.tts.ended')); setTimeout(() => { if (!tts.playing && !tts.queue.length) finishTts(); }, 900); }
     return;
   }
   tts.playing = true;
@@ -312,8 +320,8 @@ function pump() {
   a.onended = () => { tts.audio = null; pump(); };
   a.onerror = () => { tts.audio = null; pump(); };
   a.play().catch(() => { tts.audio = null; pump(); });
-  setPbText('正在播放第 ' + (item.index + 1) + ' / ' + total + ' 段');
-  setStatus('正在播放语音 ' + (item.index + 1) + '/' + total);
+  setPbText(T('panel.tts.playingChunk', { index: item.index + 1, total }));
+  setStatus(T('panel.tts.playingStatus', { index: item.index + 1, total }));
   setPauseUi();
 }
 
@@ -328,13 +336,13 @@ function applySpeakingButtons() {
     if (!btn) return;
     const on = !!id && w.dataset.id === id;
     btn.classList.toggle('speaking', on);
-    btn.textContent = on ? (tts.paused ? '⏸ 已暂停' : '⏹ 停止') : '▶ 朗读';
+    btn.textContent = on ? (tts.paused ? T('panel.speak.paused') : T('panel.tts.stop')) : T('panel.speak');
   });
 }
 function clearSpeaking() { markSpeaking(null); }
 
 el.pbPause.onclick = () => { if (tts.paused) resumeSpeaking(); else pauseSpeaking(); };
-el.pbStop.onclick = () => { stopSpeaking(); setPbText('语音播报'); toast('已停止播报'); };
+el.pbStop.onclick = () => { stopSpeaking(); setPbText(T('panel.tts.label')); toast(T('panel.tts.stopped')); };
 
 // ---------------------------------------------------------------- 历史
 async function openDrawer(on) {
@@ -347,16 +355,16 @@ async function refreshHistory() {
   if (!list.length) {
     const d = document.createElement('div');
     d.className = 'drawer-empty';
-    d.textContent = '暂无历史记录';
+    d.textContent = T('panel.history.empty');
     el.historyList.appendChild(d);
     return;
   }
   for (const c of list) {
     const item = document.createElement('div');
     item.className = 'hitem' + (c.id === state.conversationId ? ' active' : '');
-    const t = document.createElement('div'); t.className = 'ht'; t.textContent = c.title || '新对话';
-    const m = document.createElement('div'); m.className = 'hm'; m.textContent = fmtTime(c.updatedAt) + ' · ' + c.count + ' 条';
-    const x = document.createElement('button'); x.className = 'hx'; x.textContent = '✕'; x.title = '删除该对话';
+    const t = document.createElement('div'); t.className = 'ht'; t.textContent = c.title || T('panel.history.new');
+    const m = document.createElement('div'); m.className = 'hm'; m.textContent = fmtTime(c.updatedAt) + ' · ' + T('panel.history.count', { count: c.count });
+    const x = document.createElement('button'); x.className = 'hx'; x.textContent = '✕'; x.title = T('panel.history.delete');
     x.onclick = async ev => {
       ev.stopPropagation();
       await API.history.remove(c.id);
@@ -369,7 +377,7 @@ async function refreshHistory() {
       if (!conv) return;
       state.conversationId = conv.id;
       renderAll(conv.messages || []);
-      el.subtitle.textContent = conv.title || '对话';
+      el.subtitle.textContent = conv.title || T('panel.history.chat');
       openDrawer(false);
     };
     el.historyList.appendChild(item);
@@ -391,15 +399,15 @@ el.input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 el.send.onclick = send;
-el.btnFull.onclick = async () => { setStatus('截取整屏…'); await API.capture.full(); setStatus(''); };
-el.btnRegion.onclick = async () => { setStatus('请拖拽选择区域…'); await API.capture.region(); setStatus(''); };
+el.btnFull.onclick = async () => { setStatus(T('panel.capture.fullDoing')); await API.capture.full(); setStatus(''); };
+el.btnRegion.onclick = async () => { setStatus(T('panel.capture.regionDoing')); await API.capture.region(); setStatus(''); };
 el.btnSettings.onclick = () => API.panel.openSettings();
 el.btnClose.onclick = () => API.panel.hide();
 el.btnNew.onclick = async () => {
   stopSpeaking(true);
   state.conversationId = null;
   renderAll([]);
-  el.subtitle.textContent = '点击悬浮球即可截图提问';
+  el.subtitle.textContent = T('panel.subtitle');
   openDrawer(false);
 };
 el.btnHistory.onclick = () => openDrawer(!el.drawer.classList.contains('open'));
@@ -407,14 +415,14 @@ el.btnAutoSpeak.onclick = async () => {
   state.autoSpeak = !state.autoSpeak;
   el.btnAutoSpeak.classList.toggle('on', state.autoSpeak);
   await API.tts.setAutoSpeak(state.autoSpeak);
-  toast(state.autoSpeak ? '已开启自动播报' : '已关闭自动播报');
+  toast(state.autoSpeak ? T('panel.autoSpeak.on') : T('panel.autoSpeak.off'));
 };
 el.btnClearAll.onclick = async () => {
   await API.history.clear();
   state.conversationId = null;
   renderAll([]);
   refreshHistory();
-  toast('已清空历史记录');
+  toast(T('panel.history.cleared'));
 };
 
 // 标题栏拖拽
@@ -444,9 +452,9 @@ API.on('capture:new', shot => {
   if (el.drawer.classList.contains('open')) openDrawer(false);
   el.input.focus();
   if (state.chatProvider && state.chatProvider.supportsVision === false) {
-    toast('当前模型「' + state.chatProvider.name + '」不支持图片，截图不会被发送；可在设置里换用支持图片的模型', true);
+    toast(T('panel.visionUnsupported', { name: state.chatProvider.name }), true);
   } else {
-    toast('已截取屏幕，输入问题后发送');
+    toast(T('panel.shotTaken'));
   }
 });
 API.on('app:toast', p => toast(p.text, p.kind === 'error'));
@@ -456,7 +464,7 @@ API.on('chat:start', ({ conversationId, userMessage, provider }) => {
   if (provider) state.chatProvider = provider;
   state.messages.push(userMessage);
   renderUser(userMessage);
-  setStatus((provider && provider.name ? provider.name : '模型') + ' 正在思考…');
+  setStatus(T('panel.thinkingStatus', { name: (provider && provider.name) ? provider.name : T('panel.model') }));
   const { wrap, bubble } = addMsgNode('assistant');
   state.streamEl = bubble;
   state.streamWrap = wrap;
@@ -472,13 +480,13 @@ API.on('chat:start', ({ conversationId, userMessage, provider }) => {
 API.on('chat:reasoning', ({ delta }) => {
   if (!state.streamEl) return;
   state.streamReason += delta;
-  setStatus('深度思考中… (' + state.streamReason.length + ' 字)');
+  setStatus(T('panel.reasoningStatus', { count: state.streamReason.length }));
 });
 API.on('chat:delta', ({ delta }) => {
   if (!state.streamEl) return;
   state.streamText += delta;
   state.streamContent.innerHTML = renderMarkdown(state.streamText) + '<span class="caret"></span>';
-  setStatus('正在回答…');
+  setStatus(T('panel.answering'));
   scrollDown();
 });
 API.on('chat:done', ({ message, autoSpeak }) => {
@@ -486,7 +494,7 @@ API.on('chat:done', ({ message, autoSpeak }) => {
     if (state.streamReason) {
       const det = document.createElement('details');
       det.className = 'think';
-      const sum = document.createElement('summary'); sum.textContent = '深度思考过程';
+      const sum = document.createElement('summary'); sum.textContent = T('panel.thinking');
       const box = document.createElement('div'); box.textContent = state.streamReason;
       det.appendChild(sum); det.appendChild(box);
       state.streamEl.insertBefore(det, state.streamEl.firstChild);
@@ -506,11 +514,11 @@ API.on('chat:done', ({ message, autoSpeak }) => {
 });
 API.on('chat:aborted', () => {
   if (state.streamEl) {
-    state.streamContent.innerHTML = renderMarkdown(state.streamText + '\n\n_（已中断）_');
+    state.streamContent.innerHTML = renderMarkdown(state.streamText + '\n\n_' + T('chat.interrupted') + '_');
     state.streamEl = null;
   }
   setStreaming(false);
-  setStatus('已中断');
+  setStatus(T('panel.aborted'));
   setTimeout(() => setStatus(''), 1500);
 });
 API.on('chat:error', ({ error }) => {
@@ -521,14 +529,14 @@ API.on('chat:error', ({ error }) => {
   setStatus('');
 });
 
-API.on('tts:voice-ref', p => setPbText(p.cached ? '音色已就绪（本地缓存）' : '已生成专属音色 ' + Math.round((p.bytes || 0) / 1024) + ' KB'));
+API.on('tts:voice-ref', p => setPbText(p.cached ? T('panel.tts.voiceCached') : T('panel.tts.voiceGenerated', { kb: Math.round((p.bytes || 0) / 1024) })));
 API.on('tts:begin', ({ total, voice }) => {
   tts.total = total || 0;
   tts.done = false;
   tts.started = true;
   showPlaybar(true);
   setPauseUi();
-  const label = '语音合成中 0/' + total + (voice ? ' · ' + voice : '');
+  const label = T('panel.tts.begin', { done: 0, total }) + (voice ? ' · ' + voice : '');
   setPbText(label);
   setStatus(label);
 });
@@ -536,11 +544,11 @@ API.on('tts:audio', p => {
   tts.queue.push({ src: 'data:' + p.mime + ';base64,' + p.base64, index: p.index, total: p.total });
   tts.total = p.total || tts.total;
   if (!tts.paused && !tts.audio) pump();
-  else if (!tts.audio) setStatus('语音合成 ' + (p.index + 1) + '/' + p.total);
+  else if (!tts.audio) setStatus(T('panel.tts.chunk', { index: p.index + 1, total: p.total }));
 });
 API.on('tts:done', () => {
   tts.done = true;
-  if (!tts.audio && !tts.queue.length && !tts.paused) { setPbText('播放结束'); setTimeout(() => { if (!tts.playing && !tts.queue.length) finishTts(); }, 900); }
+  if (!tts.audio && !tts.queue.length && !tts.paused) { setPbText(T('panel.tts.ended')); setTimeout(() => { if (!tts.playing && !tts.queue.length) finishTts(); }, 900); }
 });
 API.on('tts:paused', p => { tts.paused = !!p.paused; setPauseUi(); applySpeakingButtons(); });
 API.on('tts:error', ({ error }) => { toast(error, true); setStatus(''); finishTts(); });
@@ -548,8 +556,9 @@ API.on('tts:error', ({ error }) => { toast(error, true); setStatus(''); finishTt
 // ---------------------------------------------------------------- 初始化
 (async function init() {
   try {
-    const { config } = await API.config.get();
-    applyProviders(config);
+    const r = await API.config.get();
+    if (r && r.language) window.DSA_I18N.setLang(r.language);
+    applyProviders(r.config);
   } catch (e) {}
   try {
     const list = await API.history.list();
@@ -558,7 +567,7 @@ API.on('tts:error', ({ error }) => { toast(error, true); setStatus(''); finishTt
       if (conv) {
         state.conversationId = conv.id;
         renderAll(conv.messages || []);
-        el.subtitle.textContent = conv.title || '对话';
+        el.subtitle.textContent = conv.title || T('panel.history.chat');
       }
     }
   } catch (e) {}
@@ -576,15 +585,38 @@ function applyProviders(config) {
   if (chat) {
     state.chatProvider = { id: chat.id, name: chat.name, model: chat.model, supportsVision: !!chat.supportsVision };
     el.subtitle.textContent = chat.name + (chat.model ? ' · ' + chat.model : '')
-      + (chat.supportsVision ? '' : '（不支持图片）');
+      + (chat.supportsVision ? '' : T('panel.visionOff'));
   }
   if (tts) {
     state.autoSpeak = !!tts.autoSpeak;
     state.voice = tts.voice || '';
   }
   el.btnAutoSpeak.classList.toggle('on', state.autoSpeak);
-  el.btnAutoSpeak.title = '自动语音播报：' + (state.autoSpeak ? '已开启' : '已关闭');
+  el.btnAutoSpeak.title = state.autoSpeak ? T('panel.autoSpeak.titleOn') : T('panel.autoSpeak.titleOff');
 }
 
 // 设置里换了服务就即时刷新
 API.on('config:changed', ({ config }) => { try { applyProviders(config); } catch (e) {} });
+
+// 设置里切了语言：立刻换语言，并把静态文案与所有动态文案一起刷新
+function refreshI18n() {
+  window.DSA_I18N.applyDom();
+  if (state.chatProvider) {
+    el.subtitle.textContent = state.chatProvider.name + (state.chatProvider.model ? ' · ' + state.chatProvider.model : '')
+      + (state.chatProvider.supportsVision ? '' : T('panel.visionOff'));
+  } else {
+    el.subtitle.textContent = T('panel.subtitle');
+  }
+  el.btnAutoSpeak.title = state.autoSpeak ? T('panel.autoSpeak.titleOn') : T('panel.autoSpeak.titleOff');
+  if (!state.streaming) { el.send.textContent = T('panel.send'); el.send.classList.remove('stop'); }
+  // 已经渲染出来的消息：只换按钮与「深度思考」标题，不动消息内容本身
+  document.querySelectorAll('.msg').forEach(w => { if (w._copyBtn) w._copyBtn.textContent = T('panel.copy'); });
+  document.querySelectorAll('.think summary').forEach(s => { s.textContent = T('panel.thinking'); });
+  applySpeakingButtons();
+  if (!tts.started) setPbText(T('panel.tts.label'));
+  setPauseUi();
+}
+API.on('i18n:changed', ({ language }) => {
+  window.DSA_I18N.setLang(language);
+  refreshI18n();
+});

@@ -1,6 +1,13 @@
 'use strict';
 const API = window.api;
 const $ = id => document.getElementById(id);
+const T = (key, vars) => window.DSA_I18N.t(key, vars);
+// 语言由主进程通过 ?lang= 传入（auto 已在主进程解析成实际语言），随后把静态文案刷一遍
+(function initI18n() {
+  const q = new URLSearchParams(location.search).get('lang');
+  if (q) window.DSA_I18N.setLang(q);
+  window.DSA_I18N.applyDom();
+})();
 
 let meta = { chatProtocols: [], ttsProtocols: [], authChoices: [], chatPresets: [], ttsPresets: [], voicePresets: [] };
 let chatList = [];
@@ -55,8 +62,8 @@ function parseHeaders(text) {
   const t = String(text || '').trim();
   if (!t) return {};
   let j = null;
-  try { j = JSON.parse(t); } catch (e) { throw new Error('额外请求头不是合法 JSON'); }
-  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('额外请求头必须是 JSON 对象');
+  try { j = JSON.parse(t); } catch (e) { throw new Error(T('settings.err.badHeadersJson')); }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error(T('settings.err.badHeadersObject'));
   const out = {};
   for (const [k, v] of Object.entries(j)) out[k] = String(v);
   return out;
@@ -94,8 +101,8 @@ function writeChatForm(p) {
   $('cBaseUrl').value = p.baseUrl || '';
   $('cApiKey').value = '';
   const noAuth = (p.authHeader || 'bearer') === 'none';
-  $('cApiKey').placeholder = p.apiKeySet ? '已配置，留空则不改动' : (noAuth ? '本地服务通常不需要' : 'sk-...');
-  setState('cKeyState', p.apiKeySet ? ('当前已配置：' + (p.apiKeyMask || '')) : (noAuth ? '该服务不需要 API Key' : '尚未配置 API Key'));
+  $('cApiKey').placeholder = p.apiKeySet ? T('settings.ph.apiKeySet') : (noAuth ? T('settings.ph.apiKeyNone') : T('settings.ph.apiKey'));
+  setState('cKeyState', p.apiKeySet ? T('settings.keyState.set', { mask: (p.apiKeyMask || '') }) : (noAuth ? T('settings.keyState.notNeeded') : T('settings.keyState.missing')));
   $('cAuthHeader').value = p.authHeader || 'bearer';
   $('cAuthHeaderName').value = p.authHeaderName || '';
   $('cModel').value = p.model || '';
@@ -161,8 +168,8 @@ function writeTtsForm(p) {
   $('tBaseUrl').value = p.baseUrl || '';
   $('tApiKey').value = '';
   const noAuth = (p.authHeader || 'bearer') === 'none';
-  $('tApiKey').placeholder = p.apiKeySet ? '已配置，留空则不改动' : (noAuth ? '本地服务通常不需要' : 'sk-...');
-  setState('tKeyState', p.apiKeySet ? ('当前已配置：' + (p.apiKeyMask || '')) : (noAuth ? '该服务不需要 API Key' : '尚未配置 API Key'));
+  $('tApiKey').placeholder = p.apiKeySet ? T('settings.ph.apiKeySet') : (noAuth ? T('settings.ph.apiKeyNone') : T('settings.ph.apiKey'));
+  setState('tKeyState', p.apiKeySet ? T('settings.keyState.set', { mask: (p.apiKeyMask || '') }) : (noAuth ? T('settings.keyState.notNeeded') : T('settings.keyState.missing')));
   $('tAuthHeader').value = p.authHeader || 'bearer';
   $('tAuthHeaderName').value = p.authHeaderName || '';
   $('tModel').value = p.ttsModel || '';
@@ -176,7 +183,7 @@ function writeTtsForm(p) {
   options($('tVoice'), voices.map(v => ({ v, label: v })), 'v', 'label', p.voice || voices[0] || '');
   const ps = $('tVoicePreset');
   ps.innerHTML = '';
-  (meta.voicePresets.length ? meta.voicePresets : [{ id: 'x', name: '默认', desc: p.voiceDesign || '' }]).forEach(vp => {
+  (meta.voicePresets.length ? meta.voicePresets : [{ id: 'x', name: T('settings.voice.defaultPreset'), desc: p.voiceDesign || '' }]).forEach(vp => {
     const o = document.createElement('option');
     o.value = vp.id; o.textContent = vp.name;
     ps.appendChild(o);
@@ -207,11 +214,19 @@ function commitTtsForm() {
 }
 
 // ---------------------------------------------------------------- 列表与切换
+/** 同名服务加 #序号，否则下拉列表里两个「DeepSeek」完全分不出来 */
+function providerLabel(list, p, modelField) {
+  const model = p[modelField] || '';
+  const same = list.filter(x => x.name === p.name);
+  const suffix = same.length > 1 ? '  #' + (same.findIndex(x => x.id === p.id) + 1) : '';
+  const idHint = same.length > 1 ? '' : '';
+  return p.name + (model ? '  ·  ' + model : '') + suffix + idHint;
+}
 function renderChatSelect() {
-  options($('cList'), chatList.map(p => ({ id: p.id, label: p.name + (p.model ? '  ·  ' + p.model : '') })), 'id', 'label', selChat);
+  options($('cList'), chatList.map(p => ({ id: p.id, label: providerLabel(chatList, p, 'model') })), 'id', 'label', selChat);
 }
 function renderTtsSelect() {
-  options($('tList'), ttsList.map(p => ({ id: p.id, label: p.name + (p.ttsModel ? '  ·  ' + p.ttsModel : '') })), 'id', 'label', selTts);
+  options($('tList'), ttsList.map(p => ({ id: p.id, label: providerLabel(ttsList, p, 'ttsModel') })), 'id', 'label', selTts);
 }
 function selectChat(id) {
   if (!commitChatForm()) { renderChatSelect(); return; }
@@ -243,16 +258,16 @@ for (const [btn, input] of [['cKeyToggle', 'cApiKey'], ['tKeyToggle', 'tApiKey']
     const i = $(input);
     const show = i.type === 'password';
     i.type = show ? 'text' : 'password';
-    $(btn).textContent = show ? '隐藏' : '显示';
+    $(btn).textContent = show ? T('settings.hide') : T('settings.show');
   };
 }
-$('cKeyClear').onclick = () => { $('cApiKey').value = '__CLEAR__'; setState('cKeyState', '保存后将清空该服务的 API Key', 'err'); };
-$('tKeyClear').onclick = () => { $('tApiKey').value = '__CLEAR__'; setState('tKeyState', '保存后将清空该服务的 API Key', 'err'); };
+$('cKeyClear').onclick = () => { $('cApiKey').value = '__CLEAR__'; setState('cKeyState', T('settings.keyState.willClear'), 'err'); };
+$('tKeyClear').onclick = () => { $('tApiKey').value = '__CLEAR__'; setState('tKeyState', T('settings.keyState.willClear'), 'err'); };
 
 // 从预设添加 / 复制 / 删除
 $('cAddPreset').onclick = async () => {
   const r = await API.provider.fromPreset({ kind: 'chat', presetId: $('cPresetSelect').value });
-  if (!r || !r.ok) { toast(r && r.error || '添加失败'); return; }
+  if (!r || !r.ok) { toast(r && r.error || T('settings.toast.addFailed')); return; }
   commitChatForm();
   const p = r.provider;
   p.id = uniqueId(p.id, chatList);
@@ -260,12 +275,12 @@ $('cAddPreset').onclick = async () => {
   chatList.push(p);
   renderChatSelect();
   selectChat(p.id);
-  toast('已添加「' + p.name + '」，填好 API Key 后保存');
+  toast(T('settings.toast.added', { name: p.name }));
 };
 $('cDup').onclick = () => {
   const cur = chatList.find(p => p.id === selChat);
   if (!cur) return;
-  const copy = Object.assign({}, cur, { id: uniqueId(cur.id, chatList), name: cur.name + ' 副本', apiKey: '', apiKeySet: !!cur.apiKeySet });
+  const copy = Object.assign({}, cur, { id: uniqueId(cur.id, chatList), name: cur.name + T('settings.toast.copySuffix'), apiKey: '', apiKeySet: !!cur.apiKeySet });
   chatList.push(copy);
   renderChatSelect();
   selChat = copy.id;
@@ -273,7 +288,7 @@ $('cDup').onclick = () => {
   writeChatForm(copy);
 };
 $('cDel').onclick = () => {
-  if (chatList.length <= 1) { toast('至少保留一个聊天服务'); return; }
+  if (chatList.length <= 1) { toast(T('settings.err.keepChat')); return; }
   const i = chatList.findIndex(p => p.id === selChat);
   if (i < 0) return;
   const name = chatList[i].name;
@@ -281,30 +296,30 @@ $('cDel').onclick = () => {
   selChat = chatList[Math.max(0, i - 1)].id;
   renderChatSelect();
   writeChatForm(chatList.find(p => p.id === selChat));
-  toast('已删除「' + name + '」，点保存后生效');
+  toast(T('settings.toast.deleted', { name }));
 };
 $('tAddPreset').onclick = async () => {
   const r = await API.provider.fromPreset({ kind: 'tts', presetId: $('tPresetSelect').value });
-  if (!r || !r.ok) { toast(r && r.error || '添加失败'); return; }
+  if (!r || !r.ok) { toast(r && r.error || T('settings.toast.addFailed')); return; }
   commitTtsForm();
   const p = r.provider;
   p.id = uniqueId(p.id, ttsList);
   ttsList.push(p);
   renderTtsSelect();
   selectTts(p.id);
-  toast('已添加「' + p.name + '」');
+  toast(T('settings.toast.addedTts', { name: p.name }));
 };
 $('tDup').onclick = () => {
   const cur = ttsList.find(p => p.id === selTts);
   if (!cur) return;
-  const copy = Object.assign({}, cur, { id: uniqueId(cur.id, ttsList), name: cur.name + ' 副本', apiKey: '', apiKeySet: !!cur.apiKeySet });
+  const copy = Object.assign({}, cur, { id: uniqueId(cur.id, ttsList), name: cur.name + T('settings.toast.copySuffix'), apiKey: '', apiKeySet: !!cur.apiKeySet });
   ttsList.push(copy);
   selTts = copy.id;
   renderTtsSelect();
   writeTtsForm(copy);
 };
 $('tDel').onclick = () => {
-  if (ttsList.length <= 1) { toast('至少保留一个语音服务'); return; }
+  if (ttsList.length <= 1) { toast(T('settings.err.keepTts')); return; }
   const i = ttsList.findIndex(p => p.id === selTts);
   if (i < 0) return;
   const name = ttsList[i].name;
@@ -312,18 +327,18 @@ $('tDel').onclick = () => {
   selTts = ttsList[Math.max(0, i - 1)].id;
   renderTtsSelect();
   writeTtsForm(ttsList.find(p => p.id === selTts));
-  toast('已删除「' + name + '」，点保存后生效');
+  toast(T('settings.toast.deleted', { name }));
 };
 
 // 拉取模型
 $('cModelsBtn').onclick = async () => {
-  setState('cModelState', '正在拉取模型列表…');
+  setState('cModelState', T('settings.msg.fetchingModels'));
   if (!commitChatForm()) return;
   const p = chatList.find(x => x.id === selChat);
   const r = await API.provider.models({ provider: stripProvider(p) });
   if (!r.ok) { setState('cModelState', r.error, 'err'); return; }
-  if (!r.models.length) { setState('cModelState', '该服务没有返回模型列表，请手动填写模型名', 'err'); return; }
-  setState('cModelState', '共 ' + r.models.length + ' 个模型，例如：' + r.models.slice(0, 6).join('、'), 'ok');
+  if (!r.models.length) { setState('cModelState', T('settings.msg.noModels'), 'err'); return; }
+  setState('cModelState', T('settings.msg.models', { count: r.models.length, list: r.models.slice(0, 6).join(T('settings.msg.modelsSep')) }), 'ok');
   const cur = $('cModel').value;
   $('cModel').list = '';
   const dl = document.createElement('datalist');
@@ -339,10 +354,10 @@ $('cModelsBtn').onclick = async () => {
 // 测试连接
 $('cTestBtn').onclick = async () => {
   if (!commitChatForm()) return;
-  setState('cTestState', '测试中…');
+  setState('cTestState', T('settings.msg.testing'));
   const p = chatList.find(x => x.id === selChat);
   const r = await API.provider.test({ provider: stripProvider(p) });
-  setState('cTestState', r.ok ? ('连接正常（' + r.provider + '）：' + r.message) : r.error, r.ok ? 'ok' : 'err');
+  setState('cTestState', r.ok ? T('settings.msg.connected', { name: r.provider, message: r.message }) : r.error, r.ok ? 'ok' : 'err');
 };
 
 const testAudio = { el: null };
@@ -354,12 +369,12 @@ function playTest(b64, mime) {
 $('tStopBtn').onclick = () => { if (testAudio.el) { try { testAudio.el.pause(); } catch (e) {} testAudio.el = null; } };
 $('tTestBtn').onclick = async () => {
   if (!commitTtsForm()) return;
-  setState('tTestState', '合成中…');
+  setState('tTestState', T('settings.msg.synthesizing'));
   const p = ttsList.find(x => x.id === selTts);
   const r = await API.tts.test({ provider: stripProvider(p) });
   if (!r.ok) { setState('tTestState', r.error, 'err'); return; }
   setState('tTestState', r.message, 'ok');
-  try { await playTest(r.audio, r.mime); } catch (e) { setState('tTestState', r.message + '（播放失败：' + e.message + '）', 'err'); }
+  try { await playTest(r.audio, r.mime); } catch (e) { setState('tTestState', T('settings.msg.playFailed', { message: r.message, error: e.message }), 'err'); }
 };
 
 // 音色设计
@@ -367,27 +382,27 @@ $('tApplyPreset').onclick = () => {
   const vp = meta.voicePresets.find(x => x.id === $('tVoicePreset').value);
   if (!vp) return;
   $('tVoiceDesign').value = vp.desc;
-  setState('tVoiceState', '已套用「' + vp.name + '」，保存后生效', 'ok');
+  setState('tVoiceState', T('settings.msg.presetApplied', { name: vp.name }), 'ok');
 };
 async function refreshVoiceRef() {
   const cur = ttsList.find(x => x.id === selTts);
   if (!cur || cur.protocol !== 'mimo-tts') return;
   const r = await API.tts.voiceRefInfo({ provider: stripProvider(cur) });
   if (!r || !r.ok) return;
-  if (r.exists) setState('tVoiceState', '已固化参考音色：' + Math.round(r.bytes / 1024) + ' KB · ' + new Date(r.createdAt).toLocaleString());
-  else setState('tVoiceState', '尚未生成音色，首次朗读或点「生成 / 重新生成音色」时自动生成');
+  if (r.exists) setState('tVoiceState', T('settings.msg.voiceRefReady', { kb: Math.round(r.bytes / 1024), time: new Date(r.createdAt).toLocaleString() }));
+  else setState('tVoiceState', T('settings.msg.voiceRefMissing'));
 }
 $('tRegen').onclick = async () => {
   if (!commitChatForm() || !commitTtsForm()) return;
-  setState('tVoiceState', '保存描述并生成音色…');
+  setState('tVoiceState', T('settings.msg.generatingVoice'));
   const sr = await API.config.save({
     providers: { chat: chatList.map(stripProvider), tts: ttsList.map(stripProvider) },
     activeChatId: selChat, activeTtsId: selTts,
   });
-  if (!sr || !sr.ok) { setState('tVoiceState', '保存失败', 'err'); return; }
+  if (!sr || !sr.ok) { setState('tVoiceState', T('settings.msg.saveFailed'), 'err'); return; }
   const r = await API.tts.designVoice({ id: selTts, reuse: false });
   if (!r.ok) { setState('tVoiceState', r.error, 'err'); return; }
-  setState('tVoiceState', '已生成并固化 ' + Math.round(r.bytes / 1024) + ' KB', 'ok');
+  setState('tVoiceState', T('settings.msg.voiceGenerated', { kb: Math.round(r.bytes / 1024) }), 'ok');
   try { await playTest(r.audio, r.mime); } catch (e) {}
 };
 
@@ -405,8 +420,8 @@ $('btnCancel').onclick = () => API.win.close();
 
 $('btnSave').onclick = async () => {
   if (!commitChatForm() || !commitTtsForm()) return;
-  if (!chatList.length) { toast('至少保留一个聊天服务'); return; }
-  if (!ttsList.length) { toast('至少保留一个语音服务'); return; }
+  if (!chatList.length) { toast(T('settings.err.keepChat')); return; }
+  if (!ttsList.length) { toast(T('settings.err.keepTts')); return; }
   const patch = {
     providers: { chat: chatList.map(stripProvider), tts: ttsList.map(stripProvider) },
     activeChatId: selChat,
@@ -420,14 +435,15 @@ $('btnSave').onclick = async () => {
       opacity: parseFloat($('uiOpacity').value),
       alwaysOnTop: $('uiTop').checked,
       autoLaunch: $('uiAuto').checked,
+      language: $('uiLanguage').value,      // auto | zh-CN | en-US，主进程负责解析生效
     },
   };
-  setState('saveState', '保存中…');
+  setState('saveState', T('settings.msg.saving'));
   const r = await API.config.save(patch);
-  if (!r || !r.ok) { setState('saveState', '保存失败', 'err'); return; }
+  if (!r || !r.ok) { setState('saveState', T('settings.msg.saveFailed'), 'err'); return; }
   applyConfig(r.config, appVer, cfgPath, meta);
-  setState('saveState', '已保存', 'ok');
-  toast('设置已保存');
+  setState('saveState', T('settings.msg.saved'), 'ok');
+  toast(T('settings.toast.saved'));
 };
 
 // 标题栏拖拽
@@ -478,6 +494,7 @@ function applyConfig(c, appVersion, configPath, metaIn) {
   $('uiOpacity').value = c.ui.opacity == null ? 0.96 : c.ui.opacity;
   $('uiTop').checked = !!c.ui.alwaysOnTop;
   $('uiAuto').checked = !!c.ui.autoLaunch;
+  $('uiLanguage').value = c.ui.language || 'auto';
   syncRangeLabels();
 
   $('aboutVersion').textContent = appVer || '-';
@@ -488,8 +505,23 @@ document.querySelectorAll('a[data-ext]').forEach(a => {
   a.addEventListener('click', e => { e.preventDefault(); API.app.openExternal(a.getAttribute('href')); });
 });
 
+// 设置里切了语言：立刻换语言，静态文案与表单里的动态状态一起刷新
+API.on('i18n:changed', ({ language }) => {
+  window.DSA_I18N.setLang(language);
+  window.DSA_I18N.applyDom();
+  renderChatSelect();
+  renderTtsSelect();
+  const c = chatList.find(p => p.id === selChat);
+  if (c) writeChatForm(c);
+  const s = ttsList.find(p => p.id === selTts);
+  if (s) writeTtsForm(s);
+  syncRangeLabels();
+});
+
 (async function init() {
   const r = await API.config.get();
+  // 以主进程解析出来的实际语言为准（?lang= 已经是它，这里再兜一次底）
+  if (r.language) { window.DSA_I18N.setLang(r.language); window.DSA_I18N.applyDom(); }
   applyConfig(r.config, r.appVersion, r.configPath, {
     chatProtocols: r.chatProtocols || [],
     ttsProtocols: r.ttsProtocols || [],

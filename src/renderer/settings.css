@@ -38,6 +38,8 @@ select { cursor: pointer; }
 .chk { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #b9c2d6; margin: 9px 0 0; }
 .chk input[type=checkbox] { width: 15px; height: 15px; accent-color: #4d6bfe; flex: none; cursor: pointer; }
 .chk > span { flex: none; font-size: 11.5px; color: #8b93a7; }
+/* 勾选框后面的正文文字：包一层 span 只是为了挂 data-i18n，视觉上保持原来 .chk 的字号与颜色 */
+.chk > span.plain { flex: none; font-size: 12px; color: #b9c2d6; }
 .chk input[type=text], .chk select, .chk input[type=number] { flex: 1; width: auto; }
 .chk input[type=range] { flex: 1; width: auto; min-width: 0; }
 .chk.col { flex-direction: column; align-items: stretch; }
