@@ -1,0 +1,5 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+#dim { position: fixed; inset: 0; background: rgba(8, 10, 16, .42); }
+#sel { position: fixed; display: none; border: 1.5px solid #4d6bfe; box-shadow: 0 0 0 100vmax rgba(8, 10, 16, .42); pointer-events: none; }
+#size { position: fixed; display: none; background: #4d6bfe; color: #fff; font: 12px/1.7 "Microsoft YaHei", sans-serif; padding: 0 8px; border-radius: 5px; pointer-events: none; }
+#hint { position: fixed; top: 26px; left: 50%; transform: translateX(-50%); background: rgba(20,22,29,.93); border: 1px solid rgba(255,255,255,.14); color: #dfe4ef; font: 13px/1.6 "Microsoft YaHei", sans-serif; padding: 9px 18px; border-radius: 9px; pointer-events: none; }

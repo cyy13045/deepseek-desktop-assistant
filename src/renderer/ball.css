@@ -1,0 +1,48 @@
+:root { --size: 56px; --op: .96; }
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: transparent;
+  user-select: none; -webkit-user-select: none; -webkit-app-region: no-drag;
+  font-family: "Microsoft YaHei", system-ui, sans-serif;
+}
+body { display: flex; align-items: center; justify-content: center; }
+
+.orb {
+  position: relative; width: var(--size); height: var(--size);
+  border-radius: 50%; opacity: var(--op);
+  background: radial-gradient(circle at 32% 26%, #7d93ff 0%, #4d6bfe 46%, #2b40bb 100%);
+  box-shadow: 0 6px 18px rgba(40, 62, 190, .42), inset 0 1px 1px rgba(255,255,255,.42);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s ease;
+}
+.orb .icon {
+  width: 60%; height: 60%; object-fit: contain;
+  opacity: 0; transform: scale(.5) rotate(-10deg);
+  transition: opacity .15s ease, transform .22s cubic-bezier(.34,1.56,.64,1);
+  pointer-events: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,.18));
+}
+.orb .dot {
+  position: absolute; width: 8px; height: 8px; border-radius: 50%;
+  background: rgba(255,255,255,.92);
+  opacity: .85; transition: opacity .14s ease, transform .14s ease;
+}
+.orb .ring {
+  position: absolute; inset: -4px; border-radius: 50%;
+  border: 2px solid rgba(124,148,255,.55); opacity: 0;
+  transition: opacity .18s ease;
+}
+
+body.hover .orb { transform: scale(1.1); box-shadow: 0 9px 26px rgba(40,62,190,.6), 0 0 0 6px rgba(77,107,254,.16), inset 0 1px 1px rgba(255,255,255,.5); }
+body.hover .orb .icon { opacity: 1; transform: scale(1) rotate(0deg); }
+body.hover .orb .dot { opacity: 0; transform: scale(.4); }
+body.hover .orb .ring { opacity: 1; animation: pulse 1.6s ease-in-out infinite; }
+
+@keyframes pulse { 0%,100% { transform: scale(1); opacity: .55; } 50% { transform: scale(1.06); opacity: .18; } }
+
+body.hidden .orb { transform: scale(.92); filter: brightness(.94); }
+body.hidden .orb .dot { opacity: .7; }
+
+body.dragging .orb { transform: scale(1.14); cursor: grabbing; }
+body.dragging .orb .icon { opacity: 1; transform: scale(1); }
+body.dragging .orb .dot { opacity: 0; }

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; media-src data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'" />
+<title>设置</title>
+<link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+<div class="app">
+  <header class="titlebar" id="titlebar">
+    <img class="logo" src="../../assets/deepseek.svg" alt="" draggable="false" />
+    <div class="t">设置</div>
+    <button class="ibtn close" id="btnClose" title="关闭">✕</button>
+  </header>
+
+  <div class="body" id="body">
+    <section>
+      <h2>DeepSeek 对话（<a href="https://api-docs.deepseek.com/zh-cn/" data-ext>官方文档</a>）</h2>
+      <label>API Key</label>
+      <div class="row">
+        <input type="password" id="dsKey" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+        <button class="mini" id="dsKeyToggle">显示</button>
+        <button class="mini danger" id="dsKeyClear">清除</button>
+      </div>
+      <div class="state" id="dsKeyState"></div>
+
+      <label>Base URL</label>
+      <input type="text" id="dsBase" spellcheck="false" />
+
+      <label>模型</label>
+      <div class="row">
+        <input type="text" id="dsModel" list="modelList" spellcheck="false" />
+        <datalist id="modelList"></datalist>
+        <button class="mini" id="dsModelRefresh">拉取模型</button>
+      </div>
+      <div class="state" id="dsModelState">deepseek-flash 支持图像理解（截图提问必须用它）</div>
+
+      <div class="row2">
+        <label class="chk"><input type="checkbox" id="dsThinking" /> 启用深度思考模式</label>
+        <label class="chk"><span>思考强度</span>
+          <select id="dsEffort"><option value="low">low</option><option value="high">high</option><option value="max">max</option></select>
+        </label>
+      </div>
+
+      <label>图片细节（detail）</label>
+      <select id="dsDetail">
+        <option value="original">original — 保留原图（识别小字最准，推荐）</option>
+        <option value="high">high — 等价于 original</option>
+        <option value="low">low — 缩放到 512×512，更快更省 token</option>
+      </select>
+
+      <label>系统提示词</label>
+      <textarea id="dsSystem" rows="4"></textarea>
+
+      <div class="row">
+        <button class="mini" id="dsTest">测试连接</button>
+        <span class="state" id="dsTestState"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>小米 MiMo 语音合成（<a href="https://mimo.mi.com/docs/zh-CN/api/audio/tts" data-ext>官方文档</a>）</h2>
+      <label>API Key</label>
+      <div class="row">
+        <input type="password" id="miKey" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+        <button class="mini" id="miKeyToggle">显示</button>
+        <button class="mini danger" id="miKeyClear">清除</button>
+      </div>
+      <div class="state" id="miKeyState"></div>
+
+      <label>Base URL</label>
+      <input type="text" id="miBase" spellcheck="false" />
+
+      <div class="row2">
+        <label class="chk"><span>内置音色模型</span><input type="text" id="miModel" spellcheck="false" /></label>
+        <label class="chk"><span>音频格式</span>
+          <select id="miFormat"><option value="mp3">mp3（体积小，推荐）</option><option value="wav">wav</option></select>
+        </label>
+      </div>
+
+      <label>音色来源</label>
+      <select id="miVoiceMode">
+        <option value="design">文字设计音色（推荐 · voicedesign 生成专属音色并固化，音色前后一致）</option>
+        <option value="preset">内置音色（mimo-v2.5-tts 的 9 个预置音色）</option>
+      </select>
+
+      <div id="miDesignBox">
+        <label>音色设计描述（决定音色，写得越具体越稳定）</label>
+        <textarea id="miVoiceDesign" rows="4" spellcheck="false"></textarea>
+        <div class="row">
+          <select id="miVoicePreset"></select>
+          <button class="mini" id="miVoiceApplyPreset">套用预设</button>
+        </div>
+        <div class="row" style="margin-top:7px">
+          <button class="mini" id="miVoiceRegen">生成 / 重新生成音色</button>
+        </div>
+        <div class="state" id="miVoiceState"></div>
+        <div class="state">原理：voicedesign 每次调用的音色会有细微漂移，所以这里只生成一次并固化为参考音频，
+          之后每个分块都用 voiceclone 复用同一份参考，保证整段朗读音色统一。</div>
+      </div>
+
+      <div id="miPresetBox">
+        <label>内置音色</label>
+        <select id="miVoice"></select>
+      </div>
+
+      <label>朗读风格指令（可选，放在 user 消息里控制语气）</label>
+      <input type="text" id="miStyle" placeholder="例如：用平静、清晰的语气朗读" spellcheck="false" />
+
+      <div class="row2">
+        <label class="chk"><input type="checkbox" id="miAuto" /> 回答后自动播报</label>
+        <label class="chk"><span>分块字数</span><input type="number" id="miChunk" min="20" max="200" step="10" /></label>
+      </div>
+
+      <div class="row">
+        <button class="mini" id="miTest">试听当前音色</button>
+        <button class="mini" id="miStop">停止播放</button>
+        <span class="state" id="miTestState"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>界面与行为</h2>
+      <div class="row2">
+        <label class="chk"><span>贴边位置</span>
+          <select id="uiEdge"><option value="right">右侧</option><option value="left">左侧</option></select>
+        </label>
+        <label class="chk"><span>悬浮球大小 <b id="uiSizeVal"></b></span>
+          <input type="range" id="uiSize" min="36" max="96" step="2" />
+        </label>
+      </div>
+      <label class="chk"><span>不透明度 <b id="uiOpacityVal"></b></span>
+        <input type="range" id="uiOpacity" min="0.4" max="1" step="0.02" />
+      </label>
+      <div class="row2">
+        <label class="chk"><input type="checkbox" id="uiTop" /> 面板始终置顶</label>
+        <label class="chk"><input type="checkbox" id="uiAuto" /> 开机自动启动</label>
+      </div>
+      <div class="state">拖动悬浮球可移动位置，松手后自动吸附最近的边缘并记住。全局快捷键：Ctrl+Alt+S 整屏 · Ctrl+Alt+A 框选</div>
+    </section>
+
+    <section>
+      <h2>关于</h2>
+      <div class="state">版本 <b id="aboutVersion"></b><br />配置文件：<span id="aboutPath"></span></div>
+      <div class="row"><button class="mini" id="btnOpenDir">打开配置文件夹</button></div>
+      <div class="state">API Key 使用 Windows DPAPI 加密后保存在本机，不会上传到除官方接口以外的任何地方。</div>
+    </section>
+  </div>
+
+  <footer class="footer">
+    <span class="state" id="saveState"></span>
+    <button class="mini" id="btnCancel">取消</button>
+    <button class="primary" id="btnSave">保存</button>
+  </footer>
+</div>
+<div class="toast" id="toast"></div>
+<script src="settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+node_modules/
+dist/
+ui-check/
+*.log
+first-run.json

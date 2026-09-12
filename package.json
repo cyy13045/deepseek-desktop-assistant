@@ -1,0 +1,16 @@
+{
+  "name": "deepseek-desktop-assistant",
+  "productName": "DeepSeek 桌面助手",
+  "version": "1.0.0",
+  "description": "桌面贴边悬浮球：一键截图提问 DeepSeek，MiMo 语音播报",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "selftest": "electron . --selftest",
+    "ui-check": "electron . --ui-check",
+    "initconfig": "node scripts/init-config.js"
+  },
+  "devDependencies": {
+    "electron": "^44.3.0"
+  }
+}

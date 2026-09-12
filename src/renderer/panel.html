@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; media-src data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'" />
+<title>DeepSeek 桌面助手</title>
+<link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="titlebar" id="titlebar">
+      <img class="logo" src="../../assets/deepseek.svg" alt="" draggable="false" />
+      <div class="titles">
+        <div class="t">DeepSeek 桌面助手</div>
+        <div class="sub" id="subtitle">点击悬浮球即可截图提问</div>
+      </div>
+      <div class="actions">
+        <button class="ibtn" id="btnNew" title="新建对话">＋</button>
+        <button class="ibtn" id="btnHistory" title="历史记录">☰</button>
+        <button class="ibtn" id="btnAutoSpeak" title="自动语音播报">🔊</button>
+        <button class="ibtn" id="btnSettings" title="设置">⚙</button>
+        <button class="ibtn close" id="btnClose" title="隐藏面板（程序继续在托盘运行）">✕</button>
+      </div>
+    </header>
+
+    <main class="messages" id="messages">
+      <div class="empty" id="empty">
+        <img src="../../assets/deepseek.svg" alt="" draggable="false" />
+        <p>点击屏幕边缘的悬浮球，或按 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>S</kbd> 截取整屏提问</p>
+        <p class="dim">按 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>A</kbd> 可框选区域</p>
+      </div>
+    </main>
+
+    <div class="playbar" id="playbar">
+      <span class="pb-speaker" id="pbSpeaker">🔊</span>
+      <span class="pb-text" id="pbText">语音播报</span>
+      <button class="pb" id="pbPause">⏸ 暂停</button>
+      <button class="pb" id="pbStop">⏹ 停止</button>
+    </div>
+
+    <div class="composer">
+      <div class="attachments" id="attachments"></div>
+      <textarea id="input" rows="1" placeholder="输入问题…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <div class="bar">
+        <button class="tool" id="btnFull" title="截取当前屏幕">整屏截图</button>
+        <button class="tool" id="btnRegion" title="拖拽选择区域截图">框选截图</button>
+        <span class="status" id="status"></span>
+        <button class="send" id="btnSend">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <aside class="drawer" id="drawer">
+    <div class="drawer-head">
+      <span>历史记录</span>
+      <button class="ibtn" id="btnClearAll" title="清空全部历史">清空</button>
+    </div>
+    <div class="drawer-list" id="historyList"></div>
+  </aside>
+
+  <div class="toast" id="toast"></div>
+  <script src="panel.js"></script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; font-family: "Microsoft YaHei", system-ui, sans-serif; color: #e8ecf6; -webkit-user-select: none; user-select: none; }
+body { display: flex; }
+.app { flex: 1; display: flex; flex-direction: column; background: #14161d; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); box-shadow: 0 18px 50px rgba(0,0,0,.55); }
+
+.titlebar { display: flex; align-items: center; gap: 9px; padding: 11px 13px; background: linear-gradient(180deg, #1b1f2b, #161923); border-bottom: 1px solid rgba(255,255,255,.07); flex: none; }
+.titlebar .logo { width: 22px; height: 22px; object-fit: contain; }
+.titlebar .t { flex: 1; font-size: 13.5px; font-weight: 600; }
+.ibtn { width: 28px; height: 28px; border: 0; border-radius: 7px; background: transparent; color: #aab3c7; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+.ibtn:hover { background: rgba(255,255,255,.09); color: #fff; }
+.ibtn.close:hover { background: #d64545; color: #fff; }
+
+.body { flex: 1; overflow-y: auto; padding: 14px 16px; scrollbar-width: thin; }
+.body::-webkit-scrollbar { width: 9px; }
+.body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.13); border-radius: 4px; }
+
+section { background: #1a1e28; border: 1px solid rgba(255,255,255,.07); border-radius: 11px; padding: 13px 14px 15px; margin-bottom: 13px; }
+h2 { margin: 0 0 11px; font-size: 13px; font-weight: 600; color: #cdd5e6; letter-spacing: .2px; }
+h2 a { color: #7d93ff; font-size: 11.5px; font-weight: 400; text-decoration: none; margin-left: 5px; }
+h2 a:hover { text-decoration: underline; }
+
+label { display: block; font-size: 11.5px; color: #8b93a7; margin: 10px 0 5px; }
+label:first-of-type { margin-top: 0; }
+input[type=text], input[type=password], input[type=number], select, textarea {
+  width: 100%; background: #10131b; border: 1px solid rgba(255,255,255,.1); border-radius: 8px;
+  color: #e8ecf6; font-family: inherit; font-size: 12.5px; padding: 7px 10px; outline: none;
+  -webkit-user-select: text; user-select: text;
+}
+textarea { resize: vertical; min-height: 62px; line-height: 1.6; }
+input:focus, select:focus, textarea:focus { border-color: rgba(77,107,254,.75); box-shadow: 0 0 0 3px rgba(77,107,254,.13); }
+input[type=range] { width: 100%; accent-color: #4d6bfe; }
+select { cursor: pointer; }
+
+.row { display: flex; gap: 7px; align-items: center; }
+.row > input { flex: 1; }
+.row2 { display: flex; gap: 14px; align-items: flex-end; }
+.row2 > * { flex: 1; min-width: 0; }
+.chk { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #b9c2d6; margin: 9px 0 0; }
+.chk input[type=checkbox] { width: 15px; height: 15px; accent-color: #4d6bfe; flex: none; cursor: pointer; }
+.chk > span { flex: none; font-size: 11.5px; color: #8b93a7; }
+.chk input[type=text], .chk select, .chk input[type=number] { flex: 1; width: auto; }
+.chk input[type=range] { flex: 1; width: auto; min-width: 0; }
+.chk.col { flex-direction: column; align-items: stretch; }
+.chk b { color: #7d93ff; font-weight: 600; }
+
+.mini { background: #1e2230; border: 1px solid rgba(255,255,255,.1); border-radius: 8px; color: #b9c2d6; font-size: 12px; padding: 7px 12px; cursor: pointer; white-space: nowrap; transition: background .12s, color .12s; }
+.mini:hover { background: #262b3b; color: #fff; }
+.mini.danger:hover { background: #b93a3a; color: #fff; border-color: #b93a3a; }
+.primary { background: linear-gradient(180deg, #4d6bfe, #3f5ae0); border: 0; border-radius: 8px; color: #fff; font-size: 12.5px; font-weight: 600; padding: 8px 22px; cursor: pointer; }
+.primary:hover { filter: brightness(1.1); }
+
+.state { font-size: 11.5px; color: #7d8aa3; margin-top: 6px; line-height: 1.6; -webkit-user-select: text; user-select: text; word-break: break-all; }
+.state.ok { color: #5fd08a; } .state.err { color: #ff8f8f; }
+
+.footer { flex: none; display: flex; align-items: center; gap: 9px; padding: 11px 16px; border-top: 1px solid rgba(255,255,255,.07); background: #171a24; }
+.footer .state { flex: 1; margin: 0; }
+.footer .state.ok { color: #5fd08a; } .footer .state.err { color: #ff8f8f; }
+
+.toast { position: absolute; left: 50%; bottom: 74px; transform: translate(-50%, 14px); background: #262b3b; color: #e8ecf6; font-size: 12px; padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }

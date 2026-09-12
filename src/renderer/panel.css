@@ -1,0 +1,172 @@
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; background: transparent; overflow: hidden;
+  font-family: "Microsoft YaHei", -apple-system, system-ui, sans-serif;
+  color: #e8ecf6; -webkit-user-select: none; user-select: none;
+}
+body { display: flex; }
+
+.app {
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  background: #14161d; border-radius: 14px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+}
+
+/* ---------- 标题栏 ---------- */
+.titlebar {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  background: linear-gradient(180deg, #1b1f2b, #161923);
+  border-bottom: 1px solid rgba(255,255,255,.07); flex: none;
+}
+.titlebar .logo { width: 26px; height: 26px; object-fit: contain; flex: none; }
+.titles { flex: 1; min-width: 0; }
+.titles .t { font-size: 13.5px; font-weight: 600; letter-spacing: .2px; }
+.titles .sub { font-size: 11px; color: #8b93a7; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.actions { display: flex; gap: 2px; flex: none; }
+.ibtn {
+  width: 28px; height: 28px; border: 0; border-radius: 7px; cursor: pointer;
+  background: transparent; color: #aab3c7; font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; transition: background .12s, color .12s;
+}
+.ibtn:hover { background: rgba(255,255,255,.09); color: #fff; }
+.ibtn.close:hover { background: #d64545; color: #fff; }
+.ibtn.on { color: #7d93ff; background: rgba(77,107,254,.16); }
+
+/* ---------- 消息区 ---------- */
+.messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 14px 14px 6px; scrollbar-width: thin; }
+.messages::-webkit-scrollbar { width: 8px; }
+.messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,.13); border-radius: 4px; }
+.messages::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.22); }
+
+.empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #8b93a7; text-align: center; padding: 0 26px; }
+.empty img { width: 52px; height: 52px; opacity: .5; margin-bottom: 8px; }
+.empty p { font-size: 12.5px; line-height: 1.85; margin: 0; }
+.empty .dim { color: #616a7d; font-size: 11.5px; }
+kbd { background: rgba(255,255,255,.1); border-radius: 4px; padding: 1px 5px; font-size: 11px; font-family: Consolas, monospace; }
+
+.msg { display: flex; margin-bottom: 12px; }
+.msg.user { justify-content: flex-end; }
+.msg .bubble {
+  max-width: 86%; padding: 9px 12px; border-radius: 12px; font-size: 13px;
+  line-height: 1.68; -webkit-user-select: text; user-select: text;
+  word-break: break-word; overflow-wrap: anywhere;
+}
+.msg.user .bubble { background: linear-gradient(180deg, #4d6bfe, #3f5ae0); color: #fff; border-bottom-right-radius: 4px; }
+.msg.assistant .bubble { background: #1e2230; border: 1px solid rgba(255,255,255,.07); border-bottom-left-radius: 4px; }
+.msg.error .bubble { background: rgba(214,69,69,.14); border: 1px solid rgba(214,69,69,.45); color: #ffb3b3; }
+.bubble p { margin: 0 0 7px; } .bubble p:last-child { margin-bottom: 0; }
+.bubble h1, .bubble h2, .bubble h3 { margin: 9px 0 6px; font-size: 14px; } .bubble h1 { font-size: 15.5px; }
+.bubble ul { margin: 5px 0; padding-left: 20px; } .bubble li { margin: 2px 0; }
+.bubble code { background: rgba(255,255,255,.1); padding: 1px 5px; border-radius: 4px; font-family: Consolas, "Courier New", monospace; font-size: 12px; }
+.bubble pre.code { background: #0e1016; border: 1px solid rgba(255,255,255,.09); border-radius: 8px; padding: 9px 11px; overflow-x: auto; margin: 7px 0; }
+.bubble pre.code code { background: none; padding: 0; font-size: 12px; line-height: 1.55; white-space: pre; }
+.bubble a { color: #9db2ff; }
+.bubble .shot { display: block; max-width: 100%; border-radius: 8px; margin-bottom: 7px; border: 1px solid rgba(255,255,255,.15); }
+.bubble .caret { display: inline-block; width: 7px; height: 13px; background: #7d93ff; vertical-align: -2px; animation: blink 1s steps(2) infinite; border-radius: 1px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.think { font-size: 12px; color: #8b93a7; margin-bottom: 6px; }
+.think summary { cursor: pointer; color: #7d8aa3; }
+.think div { white-space: pre-wrap; margin-top: 4px; padding-left: 8px; border-left: 2px solid rgba(255,255,255,.12); }
+
+.msg-actions { display: flex; gap: 8px; margin-top: 5px; opacity: 0; transition: opacity .15s; }
+.msg:hover .msg-actions { opacity: 1; }
+.msg-actions button {
+  background: transparent; border: 0; color: #7d8aa3; font-size: 11.5px; cursor: pointer; padding: 2px 4px; border-radius: 4px;
+}
+.msg-actions button:hover { color: #fff; background: rgba(255,255,255,.08); }
+.msg-actions button.speaking { color: #7d93ff; }
+
+/* ---------- 语音播放控制条 ---------- */
+.playbar {
+  display: none; align-items: center; gap: 8px; padding: 7px 12px; flex: none;
+  background: linear-gradient(180deg, #1c2233, #191e2c);
+  border-top: 1px solid rgba(77,107,254,.28);
+}
+.playbar.show { display: flex; }
+.pb-speaker { font-size: 13px; line-height: 1; }
+.pb-speaker.playing { animation: pbPulse 1.1s ease-in-out infinite; }
+@keyframes pbPulse { 50% { opacity: .35; } }
+.pb-text { flex: 1; font-size: 11.5px; color: #9aa4ba; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pb {
+  background: #262b3b; border: 1px solid rgba(255,255,255,.12); border-radius: 7px;
+  color: #cdd5e6; font-size: 11.5px; padding: 4px 10px; cursor: pointer; white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.pb:hover { background: #303748; color: #fff; }
+.pb.primary { background: linear-gradient(180deg, #4d6bfe, #3f5ae0); border-color: transparent; color: #fff; }
+.pb.primary:hover { filter: brightness(1.1); }
+
+/* ---------- 输入区 ---------- */
+.composer { flex: none; padding: 10px 12px 12px; border-top: 1px solid rgba(255,255,255,.07); background: #171a24; }
+.attachments { display: flex; flex-wrap: wrap; gap: 8px; }
+.attachments:not(:empty) { margin-bottom: 8px; }
+.chip { position: relative; width: 96px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,.14); background: #0e1016; }
+.chip img { width: 100%; display: block; }
+.chip .x {
+  position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(0,0,0,.65); color: #fff; border: 0; cursor: pointer; font-size: 11px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.chip .x:hover { background: #d64545; }
+
+textarea#input {
+  width: 100%; resize: none; max-height: 150px; min-height: 42px;
+  background: #10131b; border: 1px solid rgba(255,255,255,.1); border-radius: 10px;
+  color: #e8ecf6; font-family: inherit; font-size: 13px; line-height: 1.6;
+  padding: 10px 11px; outline: none; -webkit-user-select: text; user-select: text;
+}
+textarea#input:focus { border-color: rgba(77,107,254,.75); box-shadow: 0 0 0 3px rgba(77,107,254,.14); }
+textarea#input::placeholder { color: #5d6577; }
+
+.bar { display: flex; align-items: center; gap: 7px; margin-top: 8px; }
+.status { flex: 1; font-size: 11.5px; color: #7d8aa3; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool {
+  background: #1e2230; border: 1px solid rgba(255,255,255,.1); border-radius: 8px;
+  color: #b9c2d6; font-size: 12px; padding: 6px 10px; cursor: pointer; transition: background .12s, color .12s, border-color .12s;
+}
+.tool:hover { background: #262b3b; color: #fff; border-color: rgba(255,255,255,.2); }
+.send {
+  background: linear-gradient(180deg, #4d6bfe, #3f5ae0); border: 0; border-radius: 8px;
+  color: #fff; font-size: 12.5px; font-weight: 600; padding: 7px 18px; cursor: pointer; transition: filter .12s;
+}
+.send:hover { filter: brightness(1.1); }
+.send.stop { background: linear-gradient(180deg, #d64545, #b93a3a); }
+.send:disabled { opacity: .5; cursor: default; filter: none; }
+
+/* ---------- 历史抽屉 ---------- */
+.drawer {
+  position: absolute; top: 0; right: 0; width: 275px; height: 100%;
+  background: #191d27; border-left: 1px solid rgba(255,255,255,.09);
+  transform: translateX(102%); transition: transform .22s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column; border-radius: 0 14px 14px 0;
+}
+.drawer.open { transform: translateX(0); box-shadow: -14px 0 34px rgba(0,0,0,.42); }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 13px; font-size: 12.5px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,.07); }
+.drawer-head .ibtn { width: auto; padding: 0 8px; font-size: 11.5px; height: 24px; }
+.drawer-list { flex: 1; overflow-y: auto; padding: 7px; scrollbar-width: thin; }
+.drawer-list::-webkit-scrollbar { width: 8px; }
+.drawer-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.13); border-radius: 4px; }
+.hitem { position: relative; padding: 9px 30px 9px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 3px; }
+.hitem:hover { background: rgba(255,255,255,.06); }
+.hitem.active { background: rgba(77,107,254,.16); }
+.hitem .ht { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hitem .hm { font-size: 11px; color: #7d8aa3; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hitem .hx {
+  position: absolute; top: 8px; right: 6px; width: 20px; height: 20px; border: 0; border-radius: 5px;
+  background: transparent; color: #6b7488; cursor: pointer; font-size: 12px; opacity: 0;
+}
+.hitem:hover .hx { opacity: 1; }
+.hitem .hx:hover { background: #d64545; color: #fff; }
+.drawer-empty { text-align: center; color: #6b7488; font-size: 12px; padding: 26px 10px; }
+
+/* ---------- Toast ---------- */
+.toast {
+  position: absolute; left: 50%; bottom: 96px; transform: translate(-50%, 14px);
+  background: #262b3b; color: #e8ecf6; font-size: 12px; padding: 8px 14px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.12); opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s; max-width: 84%; text-align: center;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.error { background: #4a1f1f; border-color: rgba(214,69,69,.5); color: #ffc2c2; }
