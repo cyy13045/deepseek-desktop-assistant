@@ -2,15 +2,47 @@
   "name": "deepseek-desktop-assistant",
   "productName": "DeepSeek 桌面助手",
   "version": "1.0.0",
-  "description": "桌面贴边悬浮球：一键截图提问 DeepSeek，MiMo 语音播报",
+  "description": "桌面贴边悬浮球：一键截图提问，支持多家 AI 与自定义 API，回答可用语音朗读",
   "main": "src/main/main.js",
+  "author": "cyy13045",
+  "license": "MIT",
   "scripts": {
     "start": "electron .",
     "selftest": "electron . --selftest",
     "ui-check": "electron . --ui-check",
-    "initconfig": "node scripts/init-config.js"
+    "diag": "electron . --diag",
+    "initconfig": "node scripts/init-config.js",
+    "build": "electron-builder --win",
+    "build:dir": "electron-builder --win --dir"
   },
   "devDependencies": {
-    "electron": "^44.3.0"
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.deepseek.desktop-assistant",
+    "productName": "DeepSeek Desktop Assistant",
+    "copyright": "Copyright © 2026 cyy13045",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "scripts/check-chunking.js",
+      "scripts/init-config.js",
+      "package.json",
+      "README.md"
+    ],
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "portable": {
+      "artifactName": "DeepSeek-Desktop-Assistant-${version}-portable.exe"
+    }
   }
 }

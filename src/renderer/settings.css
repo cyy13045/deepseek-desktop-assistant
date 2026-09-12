@@ -50,6 +50,14 @@ select { cursor: pointer; }
 .primary:hover { filter: brightness(1.1); }
 
 .state { font-size: 11.5px; color: #7d8aa3; margin-top: 6px; line-height: 1.6; -webkit-user-select: text; user-select: text; word-break: break-all; }
+.state code { background: rgba(255,255,255,.08); padding: 0 4px; border-radius: 3px; font-family: Consolas, monospace; }
+.picker { display: flex; gap: 7px; align-items: center; margin-bottom: 7px; }
+.picker select { flex: 1; min-width: 0; }
+.picker.add { margin-top: -2px; }
+details.adv { margin-top: 11px; border: 1px dashed rgba(255,255,255,.13); border-radius: 9px; padding: 8px 11px 11px; }
+details.adv > summary { cursor: pointer; font-size: 11.5px; color: #8b93a7; outline: none; }
+details.adv[open] > summary { margin-bottom: 8px; color: #b9c2d6; }
+.chk.col { flex-direction: column; align-items: stretch; gap: 4px; }
 .state.ok { color: #5fd08a; } .state.err { color: #ff8f8f; }
 
 .footer { flex: none; display: flex; align-items: center; gap: 9px; padding: 11px 16px; border-top: 1px solid rgba(255,255,255,.07); background: #171a24; }

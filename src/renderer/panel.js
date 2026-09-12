@@ -24,6 +24,7 @@ const state = {
   streamReasonEl: null,
   streamReason: '',
   speakingMsgId: null,
+  chatProvider: null,    // {id, name, model, supportsVision}
 };
 
 // ---------------------------------------------------------------- Markdown
@@ -405,7 +406,7 @@ el.btnHistory.onclick = () => openDrawer(!el.drawer.classList.contains('open'));
 el.btnAutoSpeak.onclick = async () => {
   state.autoSpeak = !state.autoSpeak;
   el.btnAutoSpeak.classList.toggle('on', state.autoSpeak);
-  await API.config.save({ mimo: { autoSpeak: state.autoSpeak } });
+  await API.tts.setAutoSpeak(state.autoSpeak);
   toast(state.autoSpeak ? '已开启自动播报' : '已关闭自动播报');
 };
 el.btnClearAll.onclick = async () => {
@@ -442,15 +443,20 @@ API.on('capture:new', shot => {
   renderAttachment();
   if (el.drawer.classList.contains('open')) openDrawer(false);
   el.input.focus();
-  toast('已截取屏幕，输入问题后发送');
+  if (state.chatProvider && state.chatProvider.supportsVision === false) {
+    toast('当前模型「' + state.chatProvider.name + '」不支持图片，截图不会被发送；可在设置里换用支持图片的模型', true);
+  } else {
+    toast('已截取屏幕，输入问题后发送');
+  }
 });
 API.on('app:toast', p => toast(p.text, p.kind === 'error'));
 
-API.on('chat:start', ({ conversationId, userMessage }) => {
+API.on('chat:start', ({ conversationId, userMessage, provider }) => {
   state.conversationId = conversationId;
+  if (provider) state.chatProvider = provider;
   state.messages.push(userMessage);
   renderUser(userMessage);
-  setStatus('DeepSeek 正在思考…');
+  setStatus((provider && provider.name ? provider.name : '模型') + ' 正在思考…');
   const { wrap, bubble } = addMsgNode('assistant');
   state.streamEl = bubble;
   state.streamWrap = wrap;
@@ -543,10 +549,7 @@ API.on('tts:error', ({ error }) => { toast(error, true); setStatus(''); finishTt
 (async function init() {
   try {
     const { config } = await API.config.get();
-    state.autoSpeak = !!config.mimo.autoSpeak;
-    state.voice = config.mimo.voice || '';
-    el.btnAutoSpeak.classList.toggle('on', state.autoSpeak);
-    el.btnAutoSpeak.title = '自动语音播报：' + (state.autoSpeak ? '已开启' : '已关闭');
+    applyProviders(config);
   } catch (e) {}
   try {
     const list = await API.history.list();
@@ -563,3 +566,25 @@ API.on('tts:error', ({ error }) => { toast(error, true); setStatus(''); finishTt
   el.input.focus();
   // 若首次打开时已带截图（主进程排队中），由主进程在 did-finish-load 后推送
 })();
+
+/** 根据当前生效的 provider 更新界面提示 */
+function applyProviders(config) {
+  const chatList = (config.providers && config.providers.chat) || [];
+  const ttsList = (config.providers && config.providers.tts) || [];
+  const chat = chatList.find(p => p.id === config.activeChatId) || chatList[0];
+  const tts = ttsList.find(p => p.id === config.activeTtsId) || ttsList[0];
+  if (chat) {
+    state.chatProvider = { id: chat.id, name: chat.name, model: chat.model, supportsVision: !!chat.supportsVision };
+    el.subtitle.textContent = chat.name + (chat.model ? ' · ' + chat.model : '')
+      + (chat.supportsVision ? '' : '（不支持图片）');
+  }
+  if (tts) {
+    state.autoSpeak = !!tts.autoSpeak;
+    state.voice = tts.voice || '';
+  }
+  el.btnAutoSpeak.classList.toggle('on', state.autoSpeak);
+  el.btnAutoSpeak.title = '自动语音播报：' + (state.autoSpeak ? '已开启' : '已关闭');
+}
+
+// 设置里换了服务就即时刷新
+API.on('config:changed', ({ config }) => { try { applyProviders(config); } catch (e) {} });

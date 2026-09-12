@@ -16,114 +16,190 @@
 
   <div class="body" id="body">
     <section>
-      <h2>DeepSeek 对话（<a href="https://api-docs.deepseek.com/zh-cn/" data-ext>官方文档</a>）</h2>
-      <label>API Key</label>
-      <div class="row">
-        <input type="password" id="dsKey" placeholder="sk-..." autocomplete="off" spellcheck="false" />
-        <button class="mini" id="dsKeyToggle">显示</button>
-        <button class="mini danger" id="dsKeyClear">清除</button>
+      <h2>聊天服务</h2>
+      <div class="picker">
+        <select id="cList"></select>
+        <button class="mini" id="cDup" title="复制当前服务">复制</button>
+        <button class="mini danger" id="cDel" title="删除当前服务">删除</button>
       </div>
-      <div class="state" id="dsKeyState"></div>
+      <div class="picker add">
+        <select id="cPresetSelect"></select>
+        <button class="mini" id="cAddPreset">＋ 从预设添加</button>
+      </div>
+      <div class="state" id="cNote"></div>
+
+      <label>名称</label>
+      <input type="text" id="cName" spellcheck="false" />
+
+      <div class="row2">
+        <label class="chk col"><span>协议</span><select id="cProtocol"></select></label>
+        <label class="chk col"><span>认证方式</span><select id="cAuthHeader"></select></label>
+      </div>
+      <div id="cAuthNameWrap" style="display:none">
+        <label>自定义认证头名</label>
+        <input type="text" id="cAuthHeaderName" placeholder="例如 api-key" spellcheck="false" />
+      </div>
 
       <label>Base URL</label>
-      <input type="text" id="dsBase" spellcheck="false" />
+      <input type="text" id="cBaseUrl" spellcheck="false" />
+
+      <label>API Key</label>
+      <div class="row">
+        <input type="password" id="cApiKey" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+        <button class="mini" id="cKeyToggle">显示</button>
+        <button class="mini danger" id="cKeyClear">清除</button>
+      </div>
+      <div class="state" id="cKeyState"></div>
 
       <label>模型</label>
       <div class="row">
-        <input type="text" id="dsModel" list="modelList" spellcheck="false" />
-        <datalist id="modelList"></datalist>
-        <button class="mini" id="dsModelRefresh">拉取模型</button>
+        <input type="text" id="cModel" spellcheck="false" />
+        <button class="mini" id="cModelsBtn">拉取模型</button>
       </div>
-      <div class="state" id="dsModelState">deepseek-flash 支持图像理解（截图提问必须用它）</div>
+      <div class="state" id="cModelState"></div>
 
       <div class="row2">
-        <label class="chk"><input type="checkbox" id="dsThinking" /> 启用深度思考模式</label>
-        <label class="chk"><span>思考强度</span>
-          <select id="dsEffort"><option value="low">low</option><option value="high">high</option><option value="max">max</option></select>
-        </label>
+        <label class="chk"><input type="checkbox" id="cSupportsVision" /> 支持图片</label>
+        <label class="chk"><input type="checkbox" id="cSupportsThinking" /> 支持思考模式</label>
+      </div>
+      <div id="cThinkingWrap" style="display:none">
+        <div class="row2">
+          <label class="chk"><input type="checkbox" id="cThinking" /> 启用深度思考</label>
+          <label class="chk"><span>思考强度</span>
+            <select id="cReasoningEffort"><option value="low">low</option><option value="high">high</option><option value="max">max</option></select>
+          </label>
+        </div>
+        <div class="state">只有 DeepSeek 这类接受 thinking 参数的服务才要勾「支持思考模式」，勾错会被服务端拒绝。</div>
       </div>
 
-      <label>图片细节（detail）</label>
-      <select id="dsDetail">
-        <option value="original">original — 保留原图（识别小字最准，推荐）</option>
-        <option value="high">high — 等价于 original</option>
-        <option value="low">low — 缩放到 512×512，更快更省 token</option>
-      </select>
-
-      <label>系统提示词</label>
-      <textarea id="dsSystem" rows="4"></textarea>
+      <details class="adv">
+        <summary>高级选项</summary>
+        <div class="row2">
+          <label class="chk col"><span>最大输出 tokens</span><input type="number" id="cMaxTokens" min="1" step="256" /></label>
+          <label class="chk col"><span>输出上限参数名</span>
+            <select id="cMaxTokensParam">
+              <option value="max_tokens">max_tokens（多数服务）</option>
+              <option value="max_completion_tokens">max_completion_tokens（OpenAI o / GPT-5 系）</option>
+            </select>
+          </label>
+        </div>
+        <div class="row2">
+          <label class="chk col"><span>图片细节 detail</span>
+            <select id="cImageDetail">
+              <option value="original">original — 保留原图（推荐）</option>
+              <option value="high">high — 等价 original</option>
+              <option value="low">low — 缩放到 512×512，更省 token</option>
+            </select>
+          </label>
+          <label class="chk col"><span>温度（留空=不发送）</span><input type="text" id="cTemperature" spellcheck="false" /></label>
+        </div>
+        <label>自定义请求路径（留空用协议默认）</label>
+        <input type="text" id="cPath" placeholder="例如 /chat/completions?api-version=2024-10-21" spellcheck="false" />
+        <label>额外请求头（JSON 对象，可留空）</label>
+        <textarea id="cExtraHeaders" rows="2" spellcheck="false" placeholder='{"HTTP-Referer":"https://example.com"}'></textarea>
+      </details>
 
       <div class="row">
-        <button class="mini" id="dsTest">测试连接</button>
-        <span class="state" id="dsTestState"></span>
+        <button class="mini" id="cTestBtn">测试连接</button>
+        <span class="state" id="cTestState"></span>
       </div>
     </section>
 
     <section>
-      <h2>小米 MiMo 语音合成（<a href="https://mimo.mi.com/docs/zh-CN/api/audio/tts" data-ext>官方文档</a>）</h2>
-      <label>API Key</label>
-      <div class="row">
-        <input type="password" id="miKey" placeholder="sk-..." autocomplete="off" spellcheck="false" />
-        <button class="mini" id="miKeyToggle">显示</button>
-        <button class="mini danger" id="miKeyClear">清除</button>
+      <h2>语音服务</h2>
+      <div class="picker">
+        <select id="tList"></select>
+        <button class="mini" id="tDup">复制</button>
+        <button class="mini danger" id="tDel">删除</button>
       </div>
-      <div class="state" id="miKeyState"></div>
-
-      <label>Base URL</label>
-      <input type="text" id="miBase" spellcheck="false" />
+      <div class="picker add">
+        <select id="tPresetSelect"></select>
+        <button class="mini" id="tAddPreset">＋ 从预设添加</button>
+      </div>
+      <div class="state" id="tNote"></div>
 
       <div class="row2">
-        <label class="chk"><span>内置音色模型</span><input type="text" id="miModel" spellcheck="false" /></label>
-        <label class="chk"><span>音频格式</span>
-          <select id="miFormat"><option value="mp3">mp3（体积小，推荐）</option><option value="wav">wav</option></select>
+        <label class="chk col"><span>名称</span><input type="text" id="tName" spellcheck="false" /></label>
+        <label class="chk col"><span>协议</span><select id="tProtocol"></select></label>
+      </div>
+
+      <label>Base URL</label>
+      <input type="text" id="tBaseUrl" spellcheck="false" />
+
+      <label>API Key</label>
+      <div class="row">
+        <input type="password" id="tApiKey" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+        <button class="mini" id="tKeyToggle">显示</button>
+        <button class="mini danger" id="tKeyClear">清除</button>
+      </div>
+      <div class="state" id="tKeyState"></div>
+
+      <div class="row2">
+        <label class="chk col"><span>认证方式</span><select id="tAuthHeader"></select></label>
+        <label class="chk col"><span>音频格式</span>
+          <select id="tFormat"><option value="mp3">mp3（体积小，推荐）</option><option value="wav">wav</option></select>
         </label>
       </div>
-
-      <label>音色来源</label>
-      <select id="miVoiceMode">
-        <option value="design">文字设计音色（推荐 · voicedesign 生成专属音色并固化，音色前后一致）</option>
-        <option value="preset">内置音色（mimo-v2.5-tts 的 9 个预置音色）</option>
-      </select>
-
-      <div id="miDesignBox">
-        <label>音色设计描述（决定音色，写得越具体越稳定）</label>
-        <textarea id="miVoiceDesign" rows="4" spellcheck="false"></textarea>
-        <div class="row">
-          <select id="miVoicePreset"></select>
-          <button class="mini" id="miVoiceApplyPreset">套用预设</button>
-        </div>
-        <div class="row" style="margin-top:7px">
-          <button class="mini" id="miVoiceRegen">生成 / 重新生成音色</button>
-        </div>
-        <div class="state" id="miVoiceState"></div>
-        <div class="state">原理：voicedesign 每次调用的音色会有细微漂移，所以这里只生成一次并固化为参考音频，
-          之后每个分块都用 voiceclone 复用同一份参考，保证整段朗读音色统一。</div>
+      <div id="tAuthNameWrap" style="display:none">
+        <label>自定义认证头名</label>
+        <input type="text" id="tAuthHeaderName" spellcheck="false" />
       </div>
 
-      <div id="miPresetBox">
-        <label>内置音色</label>
-        <select id="miVoice"></select>
+      <div class="row2">
+        <label class="chk col"><span>TTS 模型</span><input type="text" id="tModel" spellcheck="false" /></label>
+        <label class="chk col"><span>音色</span><select id="tVoice"></select></label>
+      </div>
+
+      <div id="tDesignBox">
+        <label>音色来源</label>
+        <select id="tVoiceMode">
+          <option value="design">文字设计音色（推荐 · 生成后固化，音色前后一致）</option>
+          <option value="preset">内置音色（预置音色列表）</option>
+        </select>
+        <div id="tDesignSub">
+        <label>音色设计描述（决定音色，写得越具体越稳定）</label>
+        <textarea id="tVoiceDesign" rows="3" spellcheck="false"></textarea>
+        <div class="row">
+          <select id="tVoicePreset"></select>
+          <button class="mini" id="tApplyPreset">套用预设</button>
+        </div>
+        <div class="row" style="margin-top:7px">
+          <button class="mini" id="tRegen">生成 / 重新生成音色</button>
+        </div>
+        <div class="state" id="tVoiceState"></div>
+        <div class="state">原理：voicedesign 每次调用的音色会有细微漂移，所以只生成一次并固化为参考音频，之后每个分块都用 voiceclone 复用同一份参考，保证整段朗读音色统一。</div>
+        </div>
       </div>
 
       <label>朗读风格指令（可选，放在 user 消息里控制语气）</label>
-      <input type="text" id="miStyle" placeholder="例如：用平静、清晰的语气朗读" spellcheck="false" />
+      <input type="text" id="tStyle" placeholder="例如：用平静、清晰的语气朗读" spellcheck="false" />
 
       <div class="row2">
-        <label class="chk"><input type="checkbox" id="miAuto" /> 回答后自动播报</label>
-        <label class="chk"><span>分块字数</span><input type="number" id="miChunk" min="20" max="200" step="10" /></label>
+        <label class="chk"><input type="checkbox" id="tAutoSpeak" /> 回答后自动播报</label>
+        <label class="chk"><span>分块字数</span><input type="number" id="tChunk" min="20" max="200" step="10" /></label>
       </div>
 
       <div class="row">
-        <button class="mini" id="miTest">试听当前音色</button>
-        <button class="mini" id="miStop">停止播放</button>
-        <span class="state" id="miTestState"></span>
+        <button class="mini" id="tTestBtn">试听当前音色</button>
+        <button class="mini" id="tStopBtn">停止播放</button>
+        <span class="state" id="tTestState"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>助手行为</h2>
+      <label>系统提示词</label>
+      <textarea id="systemPrompt" rows="4"></textarea>
+      <div class="row2">
+        <label class="chk col"><span>上下文保留条数</span><input type="number" id="maxContextMessages" min="2" max="100" /></label>
+        <label class="chk col"><span>上下文内最多图片数</span><input type="number" id="maxImagesInContext" min="0" max="8" /></label>
       </div>
     </section>
 
     <section>
       <h2>界面与行为</h2>
       <div class="row2">
-        <label class="chk"><span>贴边位置</span>
+        <label class="chk col"><span>贴边位置</span>
           <select id="uiEdge"><option value="right">右侧</option><option value="left">左侧</option></select>
         </label>
         <label class="chk"><span>悬浮球大小 <b id="uiSizeVal"></b></span>
@@ -144,7 +220,7 @@
       <h2>关于</h2>
       <div class="state">版本 <b id="aboutVersion"></b><br />配置文件：<span id="aboutPath"></span></div>
       <div class="row"><button class="mini" id="btnOpenDir">打开配置文件夹</button></div>
-      <div class="state">API Key 使用 Windows DPAPI 加密后保存在本机，不会上传到除官方接口以外的任何地方。</div>
+      <div class="state">所有服务的 API Key 都使用 Windows DPAPI 加密后保存在本机，不会上传到除各自官方接口以外的任何地方。</div>
     </section>
   </div>
 

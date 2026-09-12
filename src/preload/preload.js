@@ -12,14 +12,11 @@ contextBridge.exposeInMainWorld('api', {
     get: () => ipcRenderer.invoke('config:get'),
     save: (patch) => ipcRenderer.invoke('config:save', patch),
   },
-  deepseek: {
-    models: () => ipcRenderer.invoke('deepseek:models'),
-    test: () => ipcRenderer.invoke('deepseek:test'),
-  },
-  mimo: {
-    test: () => ipcRenderer.invoke('mimo:test'),
-    designVoice: (payload) => ipcRenderer.invoke('mimo:design-voice', payload || {}),
-    voiceRefInfo: () => ipcRenderer.invoke('mimo:voice-ref-info'),
+  // 聊天服务（任意协议）
+  provider: {
+    models: (payload) => ipcRenderer.invoke('provider:models', payload || {}),
+    test: (payload) => ipcRenderer.invoke('provider:test', payload || {}),
+    fromPreset: (payload) => ipcRenderer.invoke('provider:from-preset', payload || {}),
   },
   history: {
     list: () => ipcRenderer.invoke('history:list'),
@@ -36,11 +33,16 @@ contextBridge.exposeInMainWorld('api', {
     send: (payload) => ipcRenderer.invoke('chat:send', payload),
     abort: () => ipcRenderer.invoke('chat:abort'),
   },
+  // 语音服务
   tts: {
     speak: (payload) => ipcRenderer.invoke('tts:speak', payload),
     pause: () => ipcRenderer.invoke('tts:pause'),
     resume: () => ipcRenderer.invoke('tts:resume'),
     stop: () => ipcRenderer.invoke('tts:stop'),
+    test: (payload) => ipcRenderer.invoke('tts:test', payload || {}),
+    designVoice: (payload) => ipcRenderer.invoke('tts:design-voice', payload || {}),
+    voiceRefInfo: (payload) => ipcRenderer.invoke('tts:voice-ref-info', payload || {}),
+    setAutoSpeak: (on) => ipcRenderer.invoke('tts:set-autospeak', on),
   },
   panel: {
     hide: () => ipcRenderer.invoke('panel:hide'),

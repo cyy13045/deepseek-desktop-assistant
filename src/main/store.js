@@ -1,67 +1,23 @@
 'use strict';
 // 配置持久化：%APPDATA%\deepseek-desktop-assistant\config.json
-// API Key 使用 Electron safeStorage（Windows 下走 DPAPI）加密后落盘，不可用时退回明文。
+// 支持任意多个「聊天服务」与「语音服务」，每个都是独立的 provider 对象。
+// 所有 provider 的 apiKey 都用 Electron safeStorage（Windows 下走 DPAPI）加密后落盘。
 const fs = require('fs');
 const path = require('path');
 const { app, safeStorage } = require('electron');
+const { chatFromPreset, ttsFromPreset, defined } = require('./providers/presets');
 
 const ENC_PREFIX = 'enc:v1:';
 
-// 用文字描述设计音色时的预设描述。默认这条是按 DeepSeek 桌面助手的使用场景调的：
-// 冷静、清晰、有一点科技感，不做播音腔，适合念技术结论和代码说明。
-const VOICE_PRESETS = [
-  {
-    id: 'deepseek',
-    name: '沉稳科技感（推荐 · 贴合 DeepSeek）',
-    desc: '一个沉稳、清晰、带一点科技感的中文青年男声：音色干净、偏中性偏低，语速中等偏慢，吐字清楚，语气专业冷静而不冷漠，像一位可靠的技术助手在耐心讲解；句尾自然收束，不过分热情，不做播音腔。',
-  },
-  {
-    id: 'neutral',
-    name: '中性电子感',
-    desc: '一个中性、略带电子感的中文声音：音色干净平衡、不刻意强调性别，语速中等，吐字均匀清晰，语气平静克制而友好，带有轻微的智能助手气质，适合长时间聆听。',
-  },
-  {
-    id: 'calm_female',
-    name: '清亮冷静女声',
-    desc: '一个清亮、干净的中文青年女声：音色偏中性，不带甜腻感，语速中等，吐字清洁干脆，语气冷静理性、温和有分寸，像一位专业的技术顾问在条理分明地说明问题。',
-  },
-  {
-    id: 'warm',
-    name: '温和亲切男声',
-    desc: '一个温和、亲切的中文男声：音色偏暖略带厚度，语速偏慢，吐字柔和清楚，语气耐心友好而不轻浮，像一位愿意慢慢把问题讲明白的朋友。',
-  },
-];
-
-const DEFAULT_VOICE_DESIGN = VOICE_PRESETS[0].desc;
+const DEFAULT_SYSTEM_PROMPT = '你是一个中文桌面助手。用户会发来屏幕截图和问题：请结合截图中的实际内容回答，条理清晰、简明扼要；看不清或不确定的地方要明说，不要编造。';
 
 const DEFAULTS = {
-  deepseek: {
-    apiKey: '',
-    baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-flash',
-    thinking: false,
-    reasoningEffort: 'low',
-    imageDetail: 'original',
-    maxTokens: 4096,
+  providers: {
+    chat: [chatFromPreset('deepseek')],
+    tts: [ttsFromPreset('mimo')],
   },
-  mimo: {
-    apiKey: '',
-    baseUrl: 'https://api.xiaomimimo.com/v1',
-    // voiceMode:
-    //   'design' = 用文字描述设计专属音色。voicedesign 生成一次后把参考音频固化到本地，
-    //              之后所有分块都用 voiceclone 复用同一份参考，保证音色前后一致。
-    //   'preset' = 直接用 mimo-v2.5-tts 的 9 个内置音色。
-    voiceMode: 'design',
-    ttsModel: 'mimo-v2.5-tts',
-    designModel: 'mimo-v2.5-tts-voicedesign',
-    cloneModel: 'mimo-v2.5-tts-voiceclone',
-    voice: '白桦',
-    voiceDesign: DEFAULT_VOICE_DESIGN,
-    format: 'mp3',
-    autoSpeak: true,
-    style: '',
-    chunkSize: 60,
-  },
+  activeChatId: 'deepseek',
+  activeTtsId: 'mimo',
   ui: {
     edge: 'right',
     offsetY: null,
@@ -71,12 +27,10 @@ const DEFAULTS = {
     autoLaunch: false,
     hideDelayMs: 380,
   },
-  systemPrompt: '你是一个中文桌面助手。用户会发来屏幕截图和问题：请结合截图中的实际内容回答，条理清晰、简明扼要；看不清或不确定的地方要明说，不要编造。',
+  systemPrompt: DEFAULT_SYSTEM_PROMPT,
   maxContextMessages: 20,
   maxImagesInContext: 2,
 };
-
-const VOICES = ['mimo_default', '冰糖', '茉莉', '苏打', '白桦', 'Mia', 'Chloe', 'Milo', 'Dean'];
 
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -103,12 +57,55 @@ function encryptSecret(plain) {
 
 function decryptSecret(v) {
   if (typeof v !== 'string' || !v) return '';
-  if (!v.startsWith(ENC_PREFIX)) return v; // 明文（例如 init-config 写入的）
+  if (!v.startsWith(ENC_PREFIX)) return v;
   try {
     return safeStorage.decryptString(Buffer.from(v.slice(ENC_PREFIX.length), 'base64'));
   } catch (e) {
     return '';
   }
+}
+
+function mask(key) {
+  if (!key) return '';
+  if (key.length <= 10) return key.slice(0, 3) + '***';
+  return key.slice(0, 6) + '...' + key.slice(-4);
+}
+
+/** 老版本配置（顶层 deepseek / mimo 两段）→ 多 provider 结构 */
+function migrateLegacy(raw) {
+  if (!raw || typeof raw !== 'object') return raw;
+  const hasNew = raw.providers && (Array.isArray(raw.providers.chat) || Array.isArray(raw.providers.tts));
+  if (hasNew) return raw;
+  const ds = raw.deepseek || {};
+  const mi = raw.mimo || {};
+  const out = Object.assign({}, raw);
+  out.providers = {
+    chat: [chatFromPreset('deepseek', defined({
+      apiKey: ds.apiKey,
+      baseUrl: ds.baseUrl,
+      model: ds.model,
+      thinking: ds.thinking,
+      reasoningEffort: ds.reasoningEffort,
+      imageDetail: ds.imageDetail,
+      maxTokens: ds.maxTokens,
+    }))],
+    tts: [ttsFromPreset('mimo', defined({
+      apiKey: mi.apiKey,
+      baseUrl: mi.baseUrl,
+      ttsModel: mi.ttsModel,
+      designModel: mi.designModel,
+      cloneModel: mi.cloneModel,
+      voiceMode: mi.voiceMode,
+      voice: mi.voice,
+      voiceDesign: mi.voiceDesign,
+      format: mi.format,
+      style: mi.style,
+      chunkSize: mi.chunkSize,
+    }))],
+  };
+  delete out.deepseek;
+  delete out.mimo;
+  return out;
 }
 
 class Store {
@@ -124,19 +121,30 @@ class Store {
     try {
       if (fs.existsSync(this.file)) raw = JSON.parse(fs.readFileSync(this.file, 'utf8')) || {};
     } catch (e) { raw = {}; }
-    const cfg = deepMerge(DEFAULTS, raw);
-    // 老配置没有 voiceDesign，或留空时补上默认描述
-    if (!cfg.mimo.voiceDesign) cfg.mimo.voiceDesign = DEFAULT_VOICE_DESIGN;
-    cfg.deepseek.apiKey = decryptSecret(cfg.deepseek.apiKey);
-    cfg.mimo.apiKey = decryptSecret(cfg.mimo.apiKey);
+    // 老格式（顶层 deepseek / mimo）在内存里迁移一次，并立刻落盘升级，避免长期维持两种结构
+    const wasLegacy = !!(raw && !raw.providers && (raw.deepseek || raw.mimo));
+    const cfg = deepMerge(JSON.parse(JSON.stringify(DEFAULTS)), migrateLegacy(raw));
+
+    if (!Array.isArray(cfg.providers.chat) || !cfg.providers.chat.length) cfg.providers.chat = [chatFromPreset('deepseek')];
+    if (!Array.isArray(cfg.providers.tts) || !cfg.providers.tts.length) cfg.providers.tts = [ttsFromPreset('mimo')];
+    if (!cfg.providers.chat.some(p => p && p.id === cfg.activeChatId)) cfg.activeChatId = cfg.providers.chat[0].id;
+    if (!cfg.providers.tts.some(p => p && p.id === cfg.activeTtsId)) cfg.activeTtsId = cfg.providers.tts[0].id;
+    if (!cfg.systemPrompt) cfg.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+
+    for (const kind of ['chat', 'tts']) {
+      for (const p of cfg.providers[kind]) {
+        if (p) p.apiKey = decryptSecret(p.apiKey);
+      }
+    }
     this._cfg = cfg;
+    if (wasLegacy) {
+      try { this._persist(); console.log('[store] 已把旧版配置升级为多服务结构'); } catch (e) {}
+    }
     return cfg;
   }
 
-  /** 明文配置（主进程内部用） */
   get() { return this.load(); }
 
-  /** 写入部分配置；patch 中的 Key 会被加密。返回新的明文配置。 */
   update(patch) {
     const merged = deepMerge(this.load(), patch || {});
     this._cfg = merged;
@@ -145,11 +153,12 @@ class Store {
   }
 
   _persist() {
-    const cfg = this._cfg;
-    const onDisk = deepMerge(cfg, {
-      deepseek: { apiKey: encryptSecret(cfg.deepseek.apiKey) },
-      mimo: { apiKey: encryptSecret(cfg.mimo.apiKey) },
-    });
+    const onDisk = JSON.parse(JSON.stringify(this._cfg));
+    for (const kind of ['chat', 'tts']) {
+      for (const p of onDisk.providers[kind] || []) {
+        if (p) p.apiKey = encryptSecret(p.apiKey);
+      }
+    }
     try {
       fs.mkdirSync(this.dir, { recursive: true });
       fs.writeFileSync(this.file, JSON.stringify(onDisk, null, 2), 'utf8');
@@ -158,20 +167,20 @@ class Store {
     }
   }
 
-  /** 供设置界面展示：Key 只回传掩码，绝不回传明文 */
+  /** 供设置界面展示：所有 Key 只回传掩码，绝不回传明文 */
   publicView() {
-    const cfg = this.load();
-    return deepMerge(cfg, {
-      deepseek: { apiKey: '', apiKeySet: !!cfg.deepseek.apiKey, apiKeyMask: mask(cfg.deepseek.apiKey) },
-      mimo: { apiKey: '', apiKeySet: !!cfg.mimo.apiKey, apiKeyMask: mask(cfg.mimo.apiKey) },
-    });
+    const cfg = JSON.parse(JSON.stringify(this.load()));
+    for (const kind of ['chat', 'tts']) {
+      cfg.providers[kind] = (cfg.providers[kind] || []).map(p => {
+        const view = Object.assign({}, p);
+        view.apiKeySet = !!p.apiKey;
+        view.apiKeyMask = mask(p.apiKey);
+        view.apiKey = '';
+        return view;
+      });
+    }
+    return cfg;
   }
 }
 
-function mask(key) {
-  if (!key) return '';
-  if (key.length <= 10) return key.slice(0, 3) + '***';
-  return key.slice(0, 6) + '...' + key.slice(-4);
-}
-
-module.exports = { Store, DEFAULTS, VOICES, VOICE_PRESETS, DEFAULT_VOICE_DESIGN, deepMerge, mask, encryptSecret, decryptSecret };
+module.exports = { Store, DEFAULTS, DEFAULT_SYSTEM_PROMPT, deepMerge, mask, encryptSecret, decryptSecret };

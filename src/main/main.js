@@ -8,14 +8,37 @@ const crypto = require('crypto');
 app.setName('deepseek-desktop-assistant');
 if (process.platform === 'win32') app.setAppUserModelId('com.deepseek.desktop-assistant');
 
-const { Store, VOICES, VOICE_PRESETS } = require('./store');
+// 悬浮球是一个又小、又贴边、大部分在屏幕外的透明置顶窗口。
+// Chromium 在 Windows 上的「原生窗口遮挡检测」会把它判定为被遮挡，于是 isPainting 变成 false ——
+// 页面明明渲染好了却不再绘制到屏幕上（capturePage 仍能拿到内容，所以截图自检看不出来）。
+// 必须关掉遮挡检测与后台化，否则悬浮球在屏幕上是不可见的。
+// 这台机器上出现过「Electron 窗口内容从不呈现到屏幕」的问题：
+// 窗口存在、isVisible/isAlwaysOnTop 都为真、capturePage 能拿到完整内容，
+// 但屏幕上什么都没有；而普通 WinForms 窗口却正常显示。
+// 悬浮球只是 2D 小窗口，关掉硬件加速改用软件渲染即可稳定显示。
+// 需要强制使用 GPU 时设环境变量 DSA_FORCE_GPU=1。
+if (process.env.DSA_FORCE_GPU !== '1') {
+  app.disableHardwareAcceleration();
+}
+
+{
+  const existing = app.commandLine.getSwitchValue('disable-features');
+  const list = ['CalculateNativeWinOcclusion'];
+  app.commandLine.appendSwitch('disable-features', existing ? existing + ',' + list.join(',') : list.join(','));
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+}
+
+const { Store } = require('./store');
 const { History } = require('./history');
-const deepseek = require('./deepseek');
-const mimo = require('./mimo');
+const providers = require('./providers');
+// 分块与 Markdown 清洗与具体厂商无关，仍由 mimo.js 提供
+const { splitForSpeech } = require('./mimo');
 
 const SELFTEST = process.argv.includes('--selftest');
 const UI_CHECK = process.argv.includes('--ui-check');
-const DEV_MODE = SELFTEST || UI_CHECK;
+const DIAG = process.argv.includes('--diag');
+const DEV_MODE = SELFTEST || UI_CHECK || DIAG;
 const ROOT = path.join(__dirname, '..', '..');
 const PRELOAD = path.join(__dirname, '..', 'preload', 'preload.js');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -23,6 +46,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 let store = null, history = null;
 let ballWin = null, panelWin = null, settingsWin = null, captureWin = null, tray = null;
 let hovering = false, dragging = false, suppressHover = false, lastInteractive = false;
+let lastTopAssert = 0;
 let hoverTimer = null, hideTimer = null, animTimer = null;
 let ballState = 'shown';
 let activeChat = null;
@@ -105,6 +129,7 @@ function showBall(animate) {
   if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
   if (ballState === 'shown') return;
   setBallState('shown', animate !== false);
+  try { ballWin.moveTop(); } catch (e) {}
 }
 function scheduleHide() {
   if (ballState !== 'shown' || dragging || suppressHover) return;
@@ -146,6 +171,15 @@ function startHoverLoop() {
   hoverTimer = setInterval(() => {
     if (!ballWin || ballWin.isDestroyed() || dragging || suppressHover) return;
     if (!ballWin.isVisible()) return;
+
+    // 悬浮球是用 showInactive() 显示的，从不激活，所以在「置顶窗口」这一层里它会排在
+    // 后来激活过的其它置顶程序下面（输入法面板 TabTip、加速器/安全软件的悬浮窗等会整个盖住它）。
+    // 定期把它重新抬到置顶层最上面 —— moveTop 不抢焦点，也不会打断用户正在做的事。
+    if (Date.now() - lastTopAssert > 1000) {
+      lastTopAssert = Date.now();
+      try { ballWin.moveTop(); } catch (e) {}
+    }
+
     const pt = screen.getCursorScreenPoint();
     const b = ballWin.getBounds();
     const { size, pad } = ballMetrics();
@@ -412,14 +446,34 @@ function createTray() {
 
 // ---------------------------------------------------------------- IPC
 function registerIpc() {
-  ipcMain.handle('config:get', () => ({ config: store.publicView(), voices: VOICES, voicePresets: VOICE_PRESETS, appVersion: app.getVersion(), configPath: store.file }));
+  ipcMain.handle('config:get', () => ({
+    config: store.publicView(),
+    chatProtocols: providers.CHAT_PROTOCOL_LIST,
+    ttsProtocols: providers.TTS_PROTOCOL_LIST,
+    authChoices: providers.AUTH_LIST,
+    chatPresets: providers.CHAT_PRESETS,
+    ttsPresets: providers.TTS_PRESETS,
+    voicePresets: providers.VOICE_DESIGN_PRESETS,
+    appVersion: app.getVersion(),
+    configPath: store.file,
+  }));
 
   ipcMain.handle('config:save', (_e, patch) => {
     const clean = JSON.parse(JSON.stringify(patch || {}));
-    for (const key of ['deepseek', 'mimo']) {
-      if (!clean[key]) continue;
-      if (clean[key].apiKey === '') delete clean[key].apiKey;            // 空 = 不改动
-      else if (clean[key].apiKey === '__CLEAR__') clean[key].apiKey = ''; // 显式清空
+    if (clean.providers) {
+      const cur = store.get();
+      for (const kind of ['chat', 'tts']) {
+        const incoming = clean.providers[kind];
+        if (!Array.isArray(incoming)) continue;
+        const oldById = new Map((cur.providers[kind] || []).map(p => [p.id, p]));
+        clean.providers[kind] = incoming.map(p => {
+          const q = Object.assign({}, p);
+          const old = oldById.get(q.id);
+          if (q.apiKey === '' || q.apiKey == null) q.apiKey = old ? old.apiKey : '';   // 空 = 不改动
+          else if (q.apiKey === '__CLEAR__') q.apiKey = '';                            // 显式清空
+          return q;
+        });
+      }
     }
     const cfg = store.update(clean);
     if (ballWin && !ballWin.isDestroyed()) {
@@ -431,50 +485,106 @@ function registerIpc() {
     }
     if (panelWin && !panelWin.isDestroyed()) panelWin.setAlwaysOnTop(!!cfg.ui.alwaysOnTop);
     try { app.setLoginItemSettings({ openAtLogin: !!cfg.ui.autoLaunch, path: process.execPath }); } catch (e) {}
+    sendPanel('config:changed', { config: store.publicView() });
     return { ok: true, config: store.publicView() };
   });
 
-  ipcMain.handle('deepseek:models', async () => {
-    try { return { ok: true, models: await deepseek.listModels(store.get().deepseek) }; }
-    catch (e) { return { ok: false, error: String(e.message || e) }; }
-  });
-  ipcMain.handle('deepseek:test', async () => {
+  // ---- 聊天服务 ----
+  const resolveChat = (cfg, id) => providers.byId(cfg, 'chat', id) || providers.activeChat(cfg);
+  const resolveTts = (cfg, id) => providers.byId(cfg, 'tts', id) || providers.activeTts(cfg);
+
+  // 设置界面可以直接把「还没保存的表单」传过来测试；此时空的 apiKey 用已存的那把补齐
+  function pickChat(cfg, payload) {
+    const raw = payload && payload.provider;
+    if (raw && typeof raw === 'object') {
+      const stored = providers.byId(cfg, 'chat', raw.id);
+      return Object.assign({}, raw, { apiKey: raw.apiKey || (stored ? stored.apiKey : '') });
+    }
+    return resolveChat(cfg, payload && payload.id);
+  }
+  function pickTts(cfg, payload) {
+    const raw = payload && payload.provider;
+    if (raw && typeof raw === 'object') {
+      const stored = providers.byId(cfg, 'tts', raw.id);
+      return Object.assign({}, raw, { apiKey: raw.apiKey || (stored ? stored.apiKey : '') });
+    }
+    return resolveTts(cfg, payload && payload.id);
+  }
+
+  // 让设置界面不用重复维护一份「预设默认值」
+  ipcMain.handle('provider:from-preset', (_e, payload) => {
     try {
-      const cfg = store.get().deepseek;
-      const txt = await deepseek.chatOnce(cfg, [{ role: 'user', content: '回复"连接正常"四个字，不要有其他内容。' }]);
-      return { ok: true, message: txt.slice(0, 120) };
-    } catch (e) { return { ok: false, error: String(e.message || e) }; }
-  });
-  ipcMain.handle('mimo:test', async () => {
-    try {
-      const cfg = store.get().mimo;
-      if (!cfg.apiKey) return { ok: false, error: '请先填写小米 MiMo API Key。' };
-      const mode = cfg.voiceMode === 'preset' ? 'preset' : 'design';
-      let voiceRef = null;
-      let label = cfg.voice || '白桦';
-      if (mode === 'design') {
-        const ref = await ensureVoiceRef(cfg, false);
-        voiceRef = 'data:' + ref.mime + ';base64,' + ref.base64;
-        label = 'AI 设计音色' + (ref.cached ? '' : '（刚生成）');
-      }
-      const r = await mimo.synthesize(cfg, '语音合成连接正常，这是当前音色的试听效果。', { mode, voiceRef });
-      const bytes = Buffer.from(r.base64, 'base64').length;
-      return { ok: true, message: '合成成功 · ' + label + ' · ' + Math.round(bytes / 1024) + ' KB', audio: r.base64, mime: r.mime, mode, voice: label };
+      const kind = payload && payload.kind === 'tts' ? 'tts' : 'chat';
+      const p = kind === 'tts' ? providers.ttsFromPreset(payload && payload.presetId) : providers.chatFromPreset(payload && payload.presetId);
+      p.apiKey = ''; p.apiKeySet = false; p.apiKeyMask = '';
+      return { ok: true, provider: p };
     } catch (e) { return { ok: false, error: String(e.message || e) }; }
   });
 
-  ipcMain.handle('mimo:design-voice', async (_e, payload) => {
+  ipcMain.handle('provider:models', async (_e, payload) => {
     try {
-      const cfg = store.get().mimo;
-      if (!cfg.apiKey) return { ok: false, error: '请先填写小米 MiMo API Key。' };
-      const ref = await ensureVoiceRef(cfg, !(payload && payload.reuse));
+      const p = pickChat(store.get(), payload);
+      if (!p) return { ok: false, error: '找不到对应的聊天服务。' };
+      return { ok: true, models: await providers.listModels(p) };
+    } catch (e) { return { ok: false, error: String(e.message || e) }; }
+  });
+
+  ipcMain.handle('provider:test', async (_e, payload) => {
+    try {
+      const p = pickChat(store.get(), payload);
+      if (!p) return { ok: false, error: '找不到对应的聊天服务。' };
+      if (!p.apiKey && p.authHeader !== 'none') return { ok: false, error: '请先填写「' + p.name + '」的 API Key。' };
+      const res = await providers.chatOnce(p, { systemPrompt: '', text: '回复"连接正常"四个字，不要有其他内容。' });
+      return { ok: true, message: (res.content || '').slice(0, 120) || '(返回内容为空)', provider: p.name };
+    } catch (e) { return { ok: false, error: String(e.message || e) }; }
+  });
+
+  // ---- 语音服务 ----
+  ipcMain.handle('tts:test', async (_e, payload) => {
+    try {
+      const p = pickTts(store.get(), payload);
+      if (!p) return { ok: false, error: '找不到对应的语音服务。' };
+      if (!p.apiKey && p.authHeader !== 'none') return { ok: false, error: '请先填写「' + p.name + '」的 API Key。' };
+      let voiceRef = null;
+      let label = p.voice || p.name;
+      if (voiceNeeded(p)) {
+        const ref = await ensureVoiceRef(p, false);
+        voiceRef = 'data:' + ref.mime + ';base64,' + ref.base64;
+        label = 'AI 设计音色' + (ref.cached ? '' : '（刚生成）');
+      }
+      const r = await providers.synthesize(p, '语音合成连接正常，这是当前音色的试听效果。', { voiceRef });
+      const bytes = Buffer.from(r.base64, 'base64').length;
+      return { ok: true, message: '合成成功 · ' + p.name + ' · ' + label + ' · ' + Math.round(bytes / 1024) + ' KB', audio: r.base64, mime: r.mime, voice: label };
+    } catch (e) { return { ok: false, error: String(e.message || e) }; }
+  });
+
+  ipcMain.handle('tts:design-voice', async (_e, payload) => {
+    try {
+      const p = pickTts(store.get(), payload);
+      if (!p) return { ok: false, error: '找不到对应的语音服务。' };
+      if (!providers.ttsSupportsVoiceDesign(p)) return { ok: false, error: '「' + p.name + '」不支持文字设计音色。' };
+      if (!p.apiKey && p.authHeader !== 'none') return { ok: false, error: '请先填写「' + p.name + '」的 API Key。' };
+      const ref = await ensureVoiceRef(p, !(payload && payload.reuse));
       return { ok: true, cached: ref.cached, bytes: ref.bytes, file: ref.file, audio: ref.base64, mime: ref.mime };
     } catch (e) { return { ok: false, error: String(e.message || e) }; }
   });
 
-  ipcMain.handle('mimo:voice-ref-info', () => {
-    try { return Object.assign({ ok: true }, voiceRefInfo(store.get().mimo)); }
-    catch (e) { return { ok: false, error: String(e.message || e) }; }
+  ipcMain.handle('tts:voice-ref-info', (_e, payload) => {
+    try {
+      const p = resolveTts(store.get(), payload && payload.id);
+      if (!p) return { ok: false, error: '找不到对应的语音服务。' };
+      return Object.assign({ ok: true, supported: providers.ttsSupportsVoiceDesign(p) }, voiceRefInfo(p));
+    } catch (e) { return { ok: false, error: String(e.message || e) }; }
+  });
+
+  // 面板上的「自动播报」开关：直接改当前语音服务的设置，不必让渲染进程回传整个 providers 数组
+  ipcMain.handle('tts:set-autospeak', (_e, on) => {
+    const cfg = store.get();
+    const p = providers.activeTts(cfg);
+    if (!p) return { ok: false };
+    const list = cfg.providers.tts.map(x => x.id === p.id ? Object.assign({}, x, { autoSpeak: !!on }) : x);
+    store.update({ providers: { tts: list } });
+    return { ok: true, autoSpeak: !!on };
   });
 
   ipcMain.handle('history:list', () => history.list());
@@ -505,26 +615,34 @@ function registerIpc() {
 
   ipcMain.handle('chat:send', async (_e, payload) => {
     const cfg = store.get();
-    if (!cfg.deepseek.apiKey) return { ok: false, error: '请先在设置中填写 DeepSeek API Key。' };
+    const prov = resolveChat(cfg, payload.providerId);
+    if (!prov) return { ok: false, error: '还没有可用的聊天服务，请先到设置里添加一个。' };
+    if (!prov.apiKey && prov.authHeader !== 'none') return { ok: false, error: '请先在设置中填写「' + prov.name + '」的 API Key。' };
     let convId = payload.conversationId;
     if (!convId || !history.get(convId)) convId = history.create().id;
     if (activeChat) { try { activeChat.controller.abort(); } catch (e) {} }
     const userMsg = history.append(convId, { role: 'user', text: payload.text || '', image: payload.image || null });
     const conv = history.get(convId);
-    const messages = deepseek.buildApiMessages(cfg.deepseek, cfg.systemPrompt, conv.messages, cfg);
     const controller = new AbortController();
     activeChat = { controller, convId };
-    sendPanel('chat:start', { conversationId: convId, userMessage: userMsg });
+    sendPanel('chat:start', {
+      conversationId: convId, userMessage: userMsg,
+      provider: { id: prov.id, name: prov.name, model: prov.model, supportsVision: !!prov.supportsVision },
+    });
     let acc = '', accReason = '';
     try {
-      const res = await deepseek.chatStream(cfg.deepseek, messages, {
+      const res = await providers.chatStream(prov, {
+        systemPrompt: cfg.systemPrompt,
+        history: conv.messages,
+        context: cfg,
         signal: controller.signal,
         onDelta: d => { acc += d; sendPanel('chat:delta', { conversationId: convId, delta: d }); },
         onReasoning: d => { accReason += d; sendPanel('chat:reasoning', { conversationId: convId, delta: d }); },
       });
       const text = res.content || acc;
-      const aiMsg = history.append(convId, { role: 'assistant', text, reasoning: res.reasoning || accReason || undefined });
-      sendPanel('chat:done', { conversationId: convId, message: aiMsg, autoSpeak: !!cfg.mimo.autoSpeak });
+      const aiMsg = history.append(convId, { role: 'assistant', text, reasoning: res.reasoning || accReason || undefined, provider: prov.name });
+      const ttsP = providers.activeTts(cfg);
+      sendPanel('chat:done', { conversationId: convId, message: aiMsg, autoSpeak: !!(ttsP && ttsP.autoSpeak), providerName: prov.name });
       return { ok: true, conversationId: convId, message: aiMsg };
     } catch (err) {
       if (err && (err.name === 'AbortError' || /abort/i.test(String(err.message)))) {
@@ -543,20 +661,21 @@ function registerIpc() {
 
   ipcMain.handle('tts:speak', async (_e, payload) => {
     const cfg = store.get();
-    if (!cfg.mimo.apiKey) return { ok: false, error: '请先在设置中填写小米 MiMo API Key。' };
+    const prov = providers.activeTts(cfg);
+    if (!prov) return { ok: false, error: '还没有可用的语音服务，请先到设置里添加一个。' };
+    if (!prov.apiKey && prov.authHeader !== 'none') return { ok: false, error: '请先在设置中填写「' + prov.name + '」的 API Key。' };
     const my = ++ttsToken;
     setTtsPaused(false, true);   // 新的一轮朗读从「未暂停」开始
 
-    const mode = cfg.mimo.voiceMode === 'preset' ? 'preset' : 'design';
-    const chunks = mimo.splitForSpeech(payload.text || '', cfg.mimo.chunkSize || 60);
+    const chunks = splitForSpeech(payload.text || '', prov.chunkSize || 60);
     if (!chunks.length) return { ok: false, error: '没有可朗读的文本。' };
 
-    // 设计音色：先确保参考音频已固化（首次生成约 2~3 秒，之后命中缓存）
+    // 需要参考音频的协议（MiMo 设计音色）：先确保已固化（首次约 2~3 秒，之后命中缓存）
     let voiceRef = null;
-    let voiceLabel = cfg.mimo.voice || '白桦';
-    if (mode === 'design') {
+    let voiceLabel = prov.voice || prov.name;
+    if (voiceNeeded(prov)) {
       try {
-        const ref = await ensureVoiceRef(cfg.mimo, !!payload.regenerateVoice);
+        const ref = await ensureVoiceRef(prov, !!payload.regenerateVoice);
         voiceRef = 'data:' + ref.mime + ';base64,' + ref.base64;
         voiceLabel = 'AI 设计音色';
         sendPanel('tts:voice-ref', { cached: ref.cached, bytes: ref.bytes, file: ref.file });
@@ -568,13 +687,13 @@ function registerIpc() {
     }
     if (my !== ttsToken) return { ok: false, aborted: true };
 
-    sendPanel('tts:begin', { total: chunks.length, voice: voiceLabel, mode, paused: false });
+    sendPanel('tts:begin', { total: chunks.length, voice: voiceLabel, provider: prov.name, paused: false });
     for (let i = 0; i < chunks.length; i++) {
       if (my !== ttsToken) return { ok: false, aborted: true };
       await ttsGate(my);                                     // 暂停时停在这里，不再继续合成
       if (my !== ttsToken) return { ok: false, aborted: true };
       try {
-        const r = await mimo.synthesize(cfg.mimo, chunks[i], { mode, voiceRef, format: cfg.mimo.format });
+        const r = await providers.synthesize(prov, chunks[i], { voiceRef, format: prov.format });
         if (my !== ttsToken) return { ok: false, aborted: true };
         sendPanel('tts:audio', { index: i, total: chunks.length, base64: r.base64, mime: r.mime, text: chunks[i] });
       } catch (err) {
@@ -584,7 +703,7 @@ function registerIpc() {
       }
     }
     sendPanel('tts:done', { total: chunks.length });
-    return { ok: true, chunks: chunks.length, voice: voiceLabel, mode };
+    return { ok: true, chunks: chunks.length, voice: voiceLabel, provider: prov.name };
   });
   ipcMain.handle('tts:pause', () => { setTtsPaused(true); return { ok: true, paused: true }; });
   ipcMain.handle('tts:resume', () => { setTtsPaused(false); return { ok: true, paused: false }; });
@@ -636,9 +755,14 @@ function openBallMenu() {
 // 参考音频固定用 mp3：wav 体积是 mp3 的 6.4 倍，而这份参考每个分块请求都要带上。
 const VOICE_REF_SAMPLE = '你好，我是 DeepSeek 桌面助手。我可以帮你看屏幕上的内容、回答问题，也可以把答案读给你听。';
 
+/** 只有需要参考音频的语音协议（目前是 MiMo）才走这条路径 */
+function voiceNeeded(p) {
+  return !!(p && providers.ttsNeedsVoiceRef(p) && p.voiceMode !== 'preset');
+}
+
 function voiceRefFile(cfg) {
   const h = crypto.createHash('sha1')
-    .update(['ref-mp3-v1', cfg.designModel, cfg.voiceDesign].join('|'))
+    .update(['ref-mp3-v1', cfg.id || '', cfg.designModel || '', cfg.voiceDesign || ''].join('|'))
     .digest('hex').slice(0, 16);
   return path.join(app.getPath('userData'), 'voices', 'ref-' + h + '.mp3');
 }
@@ -662,7 +786,7 @@ async function ensureVoiceRef(cfg, force) {
       }
     } catch (e) { /* 未生成过，往下走 */ }
   }
-  const r = await mimo.designVoice(cfg, cfg.voiceDesign, VOICE_REF_SAMPLE, { format: 'mp3' });
+  const r = await providers.designVoice(cfg, cfg.voiceDesign, VOICE_REF_SAMPLE, { format: 'mp3' });
   const buf = Buffer.from(r.base64, 'base64');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, buf);
@@ -686,9 +810,15 @@ async function runSelftest() {
   let failed = 0;
   try {
     const cfg = store.get();
+    const chatP = providers.activeChat(cfg);
+    const ttsP = providers.activeTts(cfg);
     log('配置文件:', store.file);
-    log('DeepSeek Key:', cfg.deepseek.apiKey ? '已配置' : '缺失', '| MiMo Key:', cfg.mimo.apiKey ? '已配置' : '缺失');
-    if (!cfg.deepseek.apiKey || !cfg.mimo.apiKey) failed++;
+    log('聊天服务:', chatP ? chatP.name + '（' + chatP.protocol + ' / ' + chatP.model + ' / 图片=' + (chatP.supportsVision ? '支持' : '不支持') + '）' : '无',
+        '| Key:', chatP && chatP.apiKey ? '已配置' : '缺失');
+    log('语音服务:', ttsP ? ttsP.name + '（' + ttsP.protocol + '）' : '无', '| Key:', ttsP && ttsP.apiKey ? '已配置' : '缺失');
+    if (!chatP || !ttsP) failed++;
+    if (chatP && !chatP.apiKey && chatP.authHeader !== 'none') failed++;
+    if (ttsP && !ttsP.apiKey && ttsP.authHeader !== 'none') failed++;
 
     log('--- 1) 屏幕捕获 ---');
     const shot = await captureFullScreen();
@@ -696,55 +826,65 @@ async function runSelftest() {
     log('截图:', shot.file, sz.width + 'x' + sz.height, Math.round(fs.statSync(shot.file).size / 1024) + ' KB');
     if (!sz.width) failed++;
 
-    log('--- 2) 截图 + DeepSeek 图像理解 ---');
-    const msgs = [{ role: 'user', content: [
-      { type: 'text', text: '用一句话（30字以内）描述这张屏幕截图的内容。' },
-      { type: 'image_url', image_url: { url: 'data:image/png;base64,' + fs.readFileSync(shot.file).toString('base64'), detail: 'original' } },
-    ] }];
-    const t0 = Date.now();
-    const answer = await deepseek.chatOnce(cfg.deepseek, msgs);
-    log('DeepSeek 回答:', JSON.stringify(answer), '(' + (Date.now() - t0) + 'ms)');
-    if (!answer) failed++;
+    log('--- 2) 截图 + 图像理解 ---');
+    if (chatP && chatP.supportsVision) {
+      const t0 = Date.now();
+      const res = await providers.chatOnce(chatP, {
+        systemPrompt: '',
+        turns: [{
+          role: 'user',
+          text: '用一句话（30字以内）描述这张屏幕截图的内容。',
+          images: [{ mime: 'image/png', base64: fs.readFileSync(shot.file).toString('base64') }],
+        }],
+      });
+      log(chatP.name + ' 回答:', JSON.stringify((res.content || '').slice(0, 140)), '(' + (Date.now() - t0) + 'ms)');
+      if (!res.content) failed++;
+    } else {
+      log('跳过：当前聊天服务未开启图片能力');
+    }
 
-    log('--- 3) MiMo 语音合成（分块 + 音色）---');
-    const chunks = mimo.splitForSpeech('截图助手自检通过，现在可以点击悬浮球提问了。', 60);
+    log('--- 3) 语音合成（分块 + 音色）---');
+    const chunks = splitForSpeech('截图助手自检通过，现在可以点击悬浮球提问了。', ttsP.chunkSize || 60);
     log('分块:', JSON.stringify(chunks));
     const t1 = Date.now();
-    const useDesign = cfg.mimo.voiceMode !== 'preset';
     let voiceRef = null;
-    if (useDesign) {
-      const ref = await ensureVoiceRef(cfg.mimo, false);
+    if (voiceNeeded(ttsP)) {
+      const ref = await ensureVoiceRef(ttsP, false);
       voiceRef = 'data:' + ref.mime + ';base64,' + ref.base64;
       log('设计音色参考:', ref.cached ? '命中缓存' : '新生成', Math.round(ref.bytes / 1024) + ' KB', '->', path.basename(ref.file));
     }
-    const audio = await mimo.synthesize(cfg.mimo, chunks[0], { mode: useDesign ? 'design' : 'preset', voiceRef });
-    log('音色模式:', useDesign ? 'design(voicedesign+voiceclone)' : 'preset(' + cfg.mimo.voice + ')');
+    const audio = await providers.synthesize(ttsP, chunks[0], { voiceRef });
     const bytes = Buffer.from(audio.base64, 'base64').length;
     const out = path.join(os.tmpdir(), 'dsa_selftest.' + (audio.format === 'mp3' ? 'mp3' : 'wav'));
     fs.writeFileSync(out, Buffer.from(audio.base64, 'base64'));
-    log('音频:', audio.format, Math.round(bytes / 1024) + ' KB', '(' + (Date.now() - t1) + 'ms) ->', out);
+    log('音频:', ttsP.name, audio.format, Math.round(bytes / 1024) + ' KB', '(' + (Date.now() - t1) + 'ms) ->', out);
     if (bytes < 1000) failed++;
 
     log('--- 4) 流式对话 ---');
     let streamed = '';
-    await deepseek.chatStream(cfg.deepseek, [{ role: 'user', content: '只回复：OK' }], { onDelta: d => { streamed += d; } });
+    await providers.chatStream(chatP, {
+      systemPrompt: '', history: [{ role: 'user', text: '只回复：OK' }],
+      context: { maxContextMessages: 4, maxImagesInContext: 0 },
+      onDelta: d => { streamed += d; },
+    });
     log('流式结果:', JSON.stringify(streamed));
     if (!streamed) failed++;
 
     log('--- 5) 思考模式 token 对比 ---');
-    for (const on of [false, true]) {
-      const body = deepseek.buildBody(Object.assign({}, cfg.deepseek, { thinking: on, maxTokens: 300 }), [{ role: 'user', content: '用一句话说明什么是栈。' }], false);
-      const t0 = Date.now();
-      const resp = await fetch(String(cfg.deepseek.baseUrl).replace(/\/+$/, '') + '/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cfg.deepseek.apiKey },
-        body: JSON.stringify(body),
-      });
-      const j = await resp.json();
-      if (!resp.ok) { log('思考' + (on ? '开启' : '关闭'), '失败 HTTP', resp.status); failed++; continue; }
-      const u = j.usage || {};
-      const rt = u.completion_tokens_details ? u.completion_tokens_details.reasoning_tokens : '?';
-      log('思考' + (on ? '开启' : '关闭') + ':', 'reasoning_tokens=' + rt, 'completion_tokens=' + u.completion_tokens, (Date.now() - t0) + 'ms');
+    if (chatP.protocol === 'openai' && chatP.thinkingParam) {
+      for (const on of [false, true]) {
+        const probe = Object.assign({}, chatP, { thinking: on, maxTokens: 300 });
+        const req = providers.chatProtocol(probe).buildRequest(probe, { systemPrompt: '', turns: [{ role: 'user', text: '用一句话说明什么是栈。' }], stream: false });
+        const t0 = Date.now();
+        const resp = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(req.body) });
+        const j = await resp.json();
+        if (!resp.ok) { log('思考' + (on ? '开启' : '关闭'), '失败 HTTP', resp.status); failed++; continue; }
+        const u = j.usage || {};
+        const rt = u.completion_tokens_details ? u.completion_tokens_details.reasoning_tokens : '?';
+        log('思考' + (on ? '开启' : '关闭') + ':', 'reasoning_tokens=' + rt, 'completion_tokens=' + u.completion_tokens, (Date.now() - t0) + 'ms');
+      }
+    } else {
+      log('跳过：当前服务未声明支持思考模式开关');
     }
   } catch (e) {
     log('异常:', e && e.stack ? e.stack : String(e));
@@ -752,6 +892,59 @@ async function runSelftest() {
   }
   log(failed === 0 ? '全部通过' : '存在失败项: ' + failed);
   app.exit(failed === 0 ? 0 : 1);
+}
+
+// ---------------------------------------------------------------- 悬浮球渲染诊断
+async function runBallDiag() {
+  const log = (...a) => console.log('[diag]', ...a);
+  try {
+    createBall();
+    ballWin.webContents.on('console-message', (...a) => {
+      let m = '';
+      if (a.length >= 3 && typeof a[2] === 'string') m = a[1] + ': ' + a[2];
+      else if (a[1] && typeof a[1] === 'object') m = (a[1].level || '') + ': ' + (a[1].message || '');
+      log('[ball console]', m);
+    });
+    ballWin.webContents.on('did-fail-load', (_e, c, d, u) => log('[ball] 加载失败', c, d, u));
+    ballWin.webContents.on('render-process-gone', (_e, d) => log('[ball] 渲染进程消失', JSON.stringify(d)));
+    ballWin.webContents.on('unresponsive', () => log('[ball] 渲染进程无响应'));
+
+    await sleep(4000);
+    if (!ballWin || ballWin.isDestroyed()) { log('悬浮球窗口不存在'); app.exit(1); return; }
+
+    log('ballState        =', ballState);
+    log('isVisible        =', ballWin.isVisible());
+    log('isAlwaysOnTop    =', ballWin.isAlwaysOnTop());
+    log('bounds           =', JSON.stringify(ballWin.getBounds()));
+    log('workArea         =', JSON.stringify(displayForBall().workArea));
+    try { log('isPainting       =', ballWin.webContents.isPainting()); } catch (e) { log('isPainting 出错', e.message); }
+    try { log('isLoading        =', ballWin.webContents.isLoading()); } catch (e) {}
+    try { log('isCrashed        =', ballWin.webContents.isCrashed()); } catch (e) {}
+    try { log('getBackgroundThrottling =', ballWin.webContents.getBackgroundThrottling()); } catch (e) {}
+
+    const img = await ballWin.webContents.capturePage();
+    const size = img.getSize();
+    const bmp = img.toBitmap();
+    let opaque = 0, total = 0, solid = 0;
+    for (let i = 0; i < bmp.length; i += 4) {
+      total++;
+      if (bmp[i + 3] > 30) opaque++;
+      if (bmp[i + 3] > 200) solid++;
+    }
+    log('capturePage      =', size.width + 'x' + size.height, '| 不透明像素', opaque + '/' + total, '| 实心', solid);
+
+    const html = await ballWin.webContents.executeJavaScript(
+      "JSON.stringify({ready:document.readyState,orb:!!document.getElementById('orb'),orbW:(document.getElementById('orb')||{}).offsetWidth,css:getComputedStyle(document.documentElement).getPropertyValue('--size'),bg:(document.getElementById('orb')&&getComputedStyle(document.getElementById('orb')).backgroundImage||'').slice(0,60),bodyCls:document.body.className})"
+    );
+    log('页面状态         =', html);
+
+    log('硬件加速是否关闭 =', app.isHardwareAccelerationEnabled ? !app.isHardwareAccelerationEnabled() : '(未知)');
+    log('提示: 若屏幕上看不到悬浮球，先确认这里不是「硬件加速开着」——');
+    log('      本机出现过 GPU 呈现失效：窗口内容进不了屏幕，但 capturePage 仍然正常。');
+  } catch (e) {
+    log('异常:', e && e.stack ? e.stack : String(e));
+  }
+  app.exit(0);
 }
 
 // ---------------------------------------------------------------- 界面自检（开发用：把三个页面渲染结果截图保存）
@@ -816,7 +1009,7 @@ async function runUiCheck() {
     await save('settings', settingsWin);
     // 滚到音色设置那一段，单独留一张截图
     try {
-      await settingsWin.webContents.executeJavaScript("document.getElementById('miVoiceMode').scrollIntoView({block:'start'}); true");
+      await settingsWin.webContents.executeJavaScript("document.getElementById('tDesignBox').scrollIntoView({block:'start'}); true");
       await sleep(500);
       await save('settings-voice', settingsWin);
     } catch (e) { log('音色截图失败:', e.message); }
@@ -837,11 +1030,17 @@ async function runUiCheck() {
     flow.push('点击悬浮球同路径 startCaptureFlow 后收到附件: ' + await js('!!state.pendingImage'));
 
     const wBefore = ballWin.getBounds().width;
-    const saveRes = await js("window.api.config.save({ui:{size:64}, mimo:{voice:'冰糖'}})");
+    const saveRes = await js("window.api.config.save({ui:{size:64}})");
     const wAfter = ballWin.getBounds().width;
     flow.push('config.save 成功=' + !!(saveRes && saveRes.ok) + ' | 悬浮球宽度 ' + wBefore + ' -> ' + wAfter);
 
-    flow.push('Key 掩码=' + (saveRes.config.deepseek.apiKeyMask || '(空)') + ' | publicView 不回传明文=' + (saveRes.config.deepseek.apiKey === ''));
+    const chat0 = saveRes.config.providers.chat[0];
+    const tts0 = saveRes.config.providers.tts[0];
+    flow.push('服务数: 聊天=' + saveRes.config.providers.chat.length + ' 语音=' + saveRes.config.providers.tts.length
+      + ' | 当前=' + saveRes.config.activeChatId + '/' + saveRes.config.activeTtsId);
+    flow.push('Key 掩码=' + (chat0.apiKeyMask || '(空)') + ' / ' + (tts0.apiKeyMask || '(空)')
+      + ' | publicView 不回传明文=' + (chat0.apiKey === '' && tts0.apiKey === ''));
+    flow.push('provider 定义完整性: protocol=' + chat0.protocol + ' 字段数=' + Object.keys(chat0).length);
     flow.push('落盘 DPAPI 加密=' + fs.readFileSync(store.file, 'utf8').includes('enc:v1:'));
 
     setBallState('hidden', false);
@@ -864,9 +1063,10 @@ async function runUiCheck() {
     const ttsText = '这是第一句语音播放测试，用来验证设计出来的音色能不能正常出声，并且第一块音频不需要等很久。'
       + '这是第二句话，用来验证分块合成与顺序播放是否前后衔接顺畅，音色保持一致。'
       + '这是第三句话，用来保证确实被切成了多个分块，这样暂停的时候才能检验出后台合成是否也一起停了下来。';
-    const mk = store.get().mimo;
-    flow.push('音色模式=' + mk.voiceMode + ' | 分块数=' + mimo.splitForSpeech(ttsText, mk.chunkSize || 60).length
-      + ' | 运行期 key len=' + mk.apiKey.length + ' tail=' + mk.apiKey.slice(-4) + ' 前缀=' + mk.apiKey.slice(0, 6));
+    const mk = providers.activeTts(store.get());
+    flow.push('语音服务=' + mk.name + '(' + mk.protocol + ')' + ' | 音色模式=' + (mk.voiceMode || '-')
+      + ' | 分块数=' + splitForSpeech(ttsText, mk.chunkSize || 60).length
+      + ' | 运行期 key len=' + mk.apiKey.length + ' tail=' + mk.apiKey.slice(-4));
     await js('window.api.tts.speak(' + JSON.stringify({ text: ttsText }) + ')');
 
     const started = await waitUntil("!!(tts.audio && tts.audio.currentTime > 0.15)", 30000);
@@ -899,8 +1099,9 @@ async function runUiCheck() {
     await js('window.api.tts.stop()');
     await sleep(300);
 
-    await js("window.api.config.save({ui:{size:56}, mimo:{voice:'白桦', autoSpeak:true}})");
-    flow.push('已恢复默认: size=' + ballWin.getBounds().width + ' voice=' + store.get().mimo.voice + ' mode=' + store.get().mimo.voiceMode);
+    await js("window.api.config.save({ui:{size:56}})");
+    const rp = providers.activeTts(store.get());
+    flow.push('已恢复默认: size=' + ballWin.getBounds().width + ' 语音=' + rp.name + ' 音色=' + rp.voice);
 
     flow.forEach(x => log('流程 ', x));
     log('界面自检完成');
@@ -924,6 +1125,7 @@ if (!DEV_MODE && !app.requestSingleInstanceLock()) {
     try { const n = history.sweepOrphans(); if (n) console.log('[history] 清理孤儿截图', n, '个'); } catch (e) {}
     if (SELFTEST) { runSelftest(); return; }
     if (UI_CHECK) { runUiCheck(); return; }
+    if (DIAG) { runBallDiag(); return; }
     createBall();
     createTray();
     try {
