@@ -38,12 +38,11 @@ const { splitForSpeech } = require('./mimo');
 const i18n = require('../shared/i18n');
 const t = (key, vars) => i18n.t(key, vars);
 
-/** auto = 跟随系统：app.getLocale() 以 zh 开头就用 zh-CN，否则用 en-US */
+/** auto = 跟随系统：按 app.getLocale() 精确/前缀匹配，规则见 src/shared/i18n.js 的 resolve() */
 function resolveLanguage(pref) {
-  if (pref === 'zh-CN' || pref === 'en-US') return pref;
   let loc = '';
   try { loc = String(app.getLocale() || ''); } catch (e) { loc = ''; }
-  return loc.toLowerCase().indexOf('zh') === 0 ? 'zh-CN' : 'en-US';
+  return i18n.resolve(pref, loc);
 }
 
 const SELFTEST = process.argv.includes('--selftest');

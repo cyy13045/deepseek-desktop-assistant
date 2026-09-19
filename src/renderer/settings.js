@@ -435,7 +435,7 @@ $('btnSave').onclick = async () => {
       opacity: parseFloat($('uiOpacity').value),
       alwaysOnTop: $('uiTop').checked,
       autoLaunch: $('uiAuto').checked,
-      language: $('uiLanguage').value,      // auto | zh-CN | en-US，主进程负责解析生效
+      language: $('uiLanguage').value,      // auto | 具体语言代码（见 src/shared/locales/），主进程负责解析生效
     },
   };
   setState('saveState', T('settings.msg.saving'));

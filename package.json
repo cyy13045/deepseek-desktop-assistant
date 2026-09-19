@@ -13,6 +13,7 @@
     "diag": "electron . --diag",
     "check-p0": "electron . --p0-check",
     "check-fixes": "node scripts/check-fixes.js",
+    "check-i18n": "node scripts/check-i18n.js",
     "initconfig": "node scripts/init-config.js",
     "build": "electron-builder --win",
     "build:dir": "electron-builder --win --dir"

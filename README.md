@@ -13,6 +13,8 @@
 - 屏幕边缘的圆形悬浮球，鼠标移开自动贴边隐藏，悬停时显示 DeepSeek 图标
 - 点击即截取当前屏幕（或框选局部区域），连同问题一起发给**任意**支持视觉的模型
 - **聊天与语音都是多服务**：可以同时配置多个，随时切换当前使用的那一个
+- **界面支持 9 种语言**：简体中文 / 繁體中文 / English / 日本語 / 한국어 / Русский / Español / Français /
+  Deutsch，默认跟随系统自动匹配，也可在设置里手动切换（保存后立即生效）
 - 内置 **15 个聊天预设**：DeepSeek / OpenAI / Claude / Gemini / OpenRouter / 硅基流动 / Grok /
   Kimi / 智谱 GLM / 通义千问 / 豆包 / MiniMax / Ollama / LM Studio + 完全自定义
 - **三套协议适配器**：OpenAI 兼容、Anthropic Messages、Google Gemini
@@ -159,12 +161,15 @@ src/main/providers/     多服务抽象层
   tts-openai.js          OpenAI 兼容 TTS（/audio/speech 返回二进制音频）
 src/main/mimo.js        MiMo TTS 客户端：合成、Markdown 清洗、按句分块
 src/preload/preload.js  contextBridge 暴露的 window.api
+src/shared/i18n.js     极简 i18n（UMD）：语言匹配、回退链、data-i18n 应用
+src/shared/locales/    9 份语言字典（zh-CN / zh-TW / en-US / ja-JP / ko-KR / ru-RU / es-ES / fr-FR / de-DE）
 src/renderer/ball.*     悬浮球（悬停显示 DeepSeek 图标、拖动、贴边态）
 src/renderer/panel.*    对话面板（截图附件、流式回答、历史抽屉、语音播放队列）
 src/renderer/capture.*  框选遮罩层
 src/renderer/settings.* 设置界面（多服务管理、自定义 API、音色、界面行为）
 scripts/init-config.js  首次生成配置（不硬编码任何 Key）
 scripts/check-chunking.js    语音分块与 Markdown 清洗的单元校验（不依赖 Electron）
+scripts/check-i18n.js        i18n 校验：key/占位符一致性、自动语言匹配、页面脚本引入（不依赖 Electron）
 scripts/probe-voicedesign.js 音色设计/克隆/ASR 的接口探针（用 Electron 跑，走真实解密路径）
 scripts/probe-providers.js   多协议抽象层验证：本地模拟服务跑通自定义 API + 真实端点结构探测
 ```
@@ -284,6 +289,8 @@ your question about it; the answer can be read out loud. Both chat and speech su
 - One click captures the current screen (or drag to select a region) and sends it with your question
   to **any** vision-capable model
 - **Multiple chat providers and multiple TTS providers** — configure several, switch the active one anytime
+- **Nine interface languages**: Simplified Chinese / Traditional Chinese / English / Japanese / Korean /
+  Russian / Spanish / French / German, matched from the system by default and switchable in Settings
 - **15 built-in chat presets**: DeepSeek / OpenAI / Claude / Gemini / OpenRouter / SiliconFlow / Grok /
   Kimi / Zhipu GLM / Qwen / Doubao / MiniMax / Ollama / LM Studio, plus fully custom
 - **Three protocol adapters**: OpenAI-compatible, Anthropic Messages, Google Gemini
@@ -441,12 +448,15 @@ src/main/providers/     Provider abstraction layer
   tts-openai.js           OpenAI-compatible TTS (/audio/speech returns binary audio)
 src/main/mimo.js        MiMo TTS client: synthesis, Markdown cleanup, sentence chunking
 src/preload/preload.js  The window.api surface exposed via contextBridge
+src/shared/i18n.js     Minimal i18n (UMD): language matching, fallback chain, data-i18n application
+src/shared/locales/    9 locale dictionaries (zh-CN / zh-TW / en-US / ja-JP / ko-KR / ru-RU / es-ES / fr-FR / de-DE)
 src/renderer/ball.*     The floating orb (hover icon, dragging, docked state)
 src/renderer/panel.*    Chat panel (screenshot attachment, streaming answers, history drawer, audio queue)
 src/renderer/capture.*  Region-selection overlay
 src/renderer/settings.* Settings UI (provider management, custom API, voice, UI behaviour)
 scripts/init-config.js  Generate the initial config (no API key is hard-coded)
 scripts/check-chunking.js    Unit check for speech chunking and Markdown cleanup (no Electron needed)
+scripts/check-i18n.js        i18n check: key/placeholder parity, auto language matching, page script includes (no Electron needed)
 scripts/probe-voicedesign.js Voice design/clone/ASR probe (run under Electron to use the real decrypt path)
 scripts/probe-providers.js   Provider-layer verification: custom API against a local mock + real endpoint probe
 ```

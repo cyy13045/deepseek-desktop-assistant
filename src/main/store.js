@@ -26,7 +26,7 @@ const DEFAULTS = {
     alwaysOnTop: true,
     autoLaunch: false,
     hideDelayMs: 380,
-    language: 'auto',        // auto | zh-CN | en-US
+    language: 'auto',        // auto | zh-CN | zh-TW | en-US | ja-JP | ko-KR | ru-RU | es-ES | fr-FR | de-DE
   },
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   maxContextMessages: 20,
