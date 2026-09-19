@@ -1,7 +1,7 @@
 {
   "name": "deepseek-desktop-assistant",
   "productName": "DeepSeek 桌面助手",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "桌面贴边悬浮球：一键截图提问，支持多家 AI 与自定义 API，回答可用语音朗读",
   "main": "src/main/main.js",
   "author": "cyy13045",
